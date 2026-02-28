@@ -3,7 +3,6 @@ node_modules
 
 # build output
 packages/web/dist
-packages/server/dist
 
 # misc
 .DS_Store
@@ -29,7 +28,6 @@ yarn-error.log*
 
 # database
 /data/
-packages/server/data/
 
 # typescript
 *.tsbuildinfo
