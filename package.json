@@ -1,26 +1,16 @@
 {
-  "name": "celery-hub",
+  "name": "celeryhub",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
-  },
-  "dependencies": {
-    "next": "16.1.6",
-    "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "dev": "concurrently -n server,web -c blue,green \"bun run --filter @celeryhub/server dev\" \"bun run --filter @celeryhub/web dev\"",
+    "build": "bun run --filter @celeryhub/web build && bun run --filter @celeryhub/server build",
+    "start": "bun run --filter @celeryhub/server start"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.1.6",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "concurrently": "^9.1.2"
   }
 }
