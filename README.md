@@ -111,6 +111,7 @@ See [`.env.example`](.env.example) for all available variables.
 | `VITE_PORT` | `5173` | Vite dev server port |
 | `CELERYHUB_TASK_TTL` | `0` (no expiration) | Redis TTL in seconds for task metadata. `0` = persist forever, `604800` = 7 days |
 | `CORS_ORIGINS` | `*` | Comma-separated list of allowed CORS origins |
+| `CELERYHUB_AUTH_TOKEN` | _(empty)_ | Bearer token for destructive endpoints (empty = no auth) |
 
 #### Run
 
@@ -175,7 +176,8 @@ All endpoints are under `/api`:
 | `GET` | `/api/tasks/:id/status` | Get task status |
 | `POST` | `/api/tasks/send` | Send a new task |
 | `POST` | `/api/tasks/:id/revoke` | Revoke a task |
-| `GET` | `/api/workers/inspect` | Inspect workers |
+| `GET` | `/api/workers/inspect` | Inspect workers (multiple methods) |
+| `GET` | `/api/workers/:method` | Single inspection method (`active`, `registered`, `reserved`, `scheduled`, `stats`, `conf`, `active_queues`) |
 | `GET` | `/api/queues` | List queues and depth |
 | `GET` | `/api/beats` | List beat schedules |
 | `POST` | `/api/beats` | Create a beat schedule |
@@ -185,7 +187,13 @@ All endpoints are under `/api`:
 | `POST` | `/api/beats/:id/run-now` | Run a beat immediately |
 | `GET` | `/api/beats/:id/runs` | Get beat run history |
 | `GET` | `/api/events` | SSE event stream |
-| `POST` | `/api/control/:action` | Celery control actions |
+| `POST` | `/api/control/pool-grow` | Increase worker pool size |
+| `POST` | `/api/control/pool-shrink` | Decrease worker pool size |
+| `POST` | `/api/control/rate-limit` | Set task rate limit |
+| `POST` | `/api/control/add-consumer` | Add queue to workers |
+| `POST` | `/api/control/cancel-consumer` | Remove queue from workers |
+| `POST` | `/api/control/shutdown` | Gracefully shut down workers |
+| `POST` | `/api/control/purge` | Purge all messages from queues |
 
 ## Health Check
 
@@ -282,4 +290,4 @@ CeleryHub includes CORS controls (`CORS_ORIGINS`), request body size limits, and
 
 ## License
 
-MIT
+[MIT](LICENSE)
