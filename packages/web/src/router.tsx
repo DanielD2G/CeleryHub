@@ -9,8 +9,9 @@ const SendPage = lazy(() => import("./pages/SendPage"));
 const HistoryPage = lazy(() => import("./pages/HistoryPage"));
 const WorkersPage = lazy(() => import("./pages/WorkersPage"));
 const QueuesPage = lazy(() => import("./pages/QueuesPage"));
-const BeatsPage = lazy(() => import("./pages/BeatsPage"));
-const BeatDetailPage = lazy(() => import("./pages/BeatDetailPage"));
+const WorkflowsPage = lazy(() => import("./pages/WorkflowsPage"));
+const WorkflowDetailPage = lazy(() => import("./pages/WorkflowDetailPage"));
+const WorkflowRunPage = lazy(() => import("./pages/WorkflowRunPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
 export function AppRoutes() {
@@ -31,8 +32,9 @@ export function AppRoutes() {
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/workers" element={<WorkersPage />} />
         <Route path="/queues" element={<QueuesPage />} />
-        <Route path="/beats" element={<BeatsPage />} />
-        <Route path="/beats/:id" element={<BeatDetailPage />} />
+        <Route path="/workflows" element={<WorkflowsPage />} />
+        <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
+        <Route path="/workflows/:id/runs/:runId" element={<WorkflowRunPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
