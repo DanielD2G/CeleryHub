@@ -2,7 +2,15 @@
 
 Real-time monitoring, control, and scheduling for [Celery](https://docs.celeryq.dev/) clusters.
 
-CeleryHub gives you a modern web dashboard to observe your Celery workers, inspect tasks, send jobs, manage queues, and configure periodic schedules — all from your browser.
+CeleryHub gives you a modern web dashboard to observe your Celery workers, inspect tasks, send jobs, manage queues, and orchestrate multi-step workflows — all from your browser.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dashboard-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/dashboard-light.png">
+    <img alt="CeleryHub Dashboard" src="docs/screenshots/dashboard-dark.png" width="100%">
+  </picture>
+</p>
 
 ## Features
 
@@ -10,8 +18,31 @@ CeleryHub gives you a modern web dashboard to observe your Celery workers, inspe
 - **Task management** — Browse registered tasks, view active/completed executions, retry, revoke, and inspect results or tracebacks
 - **Send tasks** — Dispatch any task to any queue with custom args/kwargs from the UI
 - **Workers & queues** — Monitor connected workers, pool stats, uptime, and queue depth
-- **Beat scheduler** — Create and manage periodic tasks (cron or interval) with run history, max run limits, and enable/disable toggles
+- **Workflows** — Orchestrate multi-step DAG pipelines with dependencies, conditions (`all_succeeded`, `any_failed`, `all_completed`), cron/interval scheduling, and visual DAG editor
 - **History** — Search and filter completed tasks with results and exceptions
+
+### Screenshots
+
+| Workers | Tasks | History |
+|---------|-------|---------|
+| ![Workers](docs/screenshots/workers-dark.png) | ![Tasks](docs/screenshots/tasks-dark.png) | ![History](docs/screenshots/history-dark.png) |
+
+| Workflows | Workflow Detail (DAG) | Workflow Run |
+|-----------|----------------------|--------------|
+| ![Workflows](docs/screenshots/workflows-dark.png) | ![Workflow Detail](docs/screenshots/workflow-detail-dark.png) | ![Workflow Run](docs/screenshots/workflow-run-dark.png) |
+
+| Send Task |
+|-----------|
+| ![Send Task](docs/screenshots/send-dark.png) |
+
+<details>
+<summary>Light mode</summary>
+
+| Dashboard | Workflow Detail |
+|-----------|-----------------|
+| ![Dashboard Light](docs/screenshots/dashboard-light.png) | ![Workflow Detail Light](docs/screenshots/workflow-detail-light.png) |
+
+</details>
 
 ## Architecture
 
@@ -148,7 +179,7 @@ CeleryHub/
 ├── packages/
 │   └── web/                    # React SPA
 │       └── src/
-│           ├── pages/          # Dashboard, Tasks, Workers, Beats, ...
+│           ├── pages/          # Dashboard, Tasks, Workers, Workflows, ...
 │           ├── components/     # Charts, dialogs, tables
 │           ├── hooks/          # Data fetching hooks
 │           └── lib/            # Types, utils, event handling
@@ -179,13 +210,17 @@ All endpoints are under `/api`:
 | `GET` | `/api/workers/inspect` | Inspect workers (multiple methods) |
 | `GET` | `/api/workers/:method` | Single inspection method (`active`, `registered`, `reserved`, `scheduled`, `stats`, `conf`, `active_queues`) |
 | `GET` | `/api/queues` | List queues and depth |
-| `GET` | `/api/beats` | List beat schedules |
-| `POST` | `/api/beats` | Create a beat schedule |
-| `PUT` | `/api/beats/:id` | Update a beat schedule |
-| `DELETE` | `/api/beats/:id` | Delete a beat schedule |
-| `POST` | `/api/beats/:id/toggle` | Enable/disable a beat |
-| `POST` | `/api/beats/:id/run-now` | Run a beat immediately |
-| `GET` | `/api/beats/:id/runs` | Get beat run history |
+| `GET` | `/api/workflows` | List workflows |
+| `POST` | `/api/workflows` | Create a workflow |
+| `GET` | `/api/workflows/:id` | Get workflow details |
+| `PUT` | `/api/workflows/:id` | Update a workflow |
+| `DELETE` | `/api/workflows/:id` | Delete a workflow |
+| `POST` | `/api/workflows/:id/toggle` | Enable/disable a workflow |
+| `POST` | `/api/workflows/:id/run-now` | Run a workflow immediately |
+| `POST` | `/api/workflows/:id/duplicate` | Duplicate a workflow |
+| `GET` | `/api/workflows/:id/runs` | Get workflow run history |
+| `GET` | `/api/workflows/:id/runs/:runId` | Get workflow run details |
+| `POST` | `/api/workflows/:id/runs/:runId/cancel` | Cancel a workflow run |
 | `GET` | `/api/events` | SSE event stream |
 | `POST` | `/api/control/pool-grow` | Increase worker pool size |
 | `POST` | `/api/control/pool-shrink` | Decrease worker pool size |
