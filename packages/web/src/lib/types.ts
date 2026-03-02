@@ -145,34 +145,91 @@ export interface CompletedTaskMeta {
   completedAt: number;
 }
 
-// Beat schedule (periodic task)
-export interface BeatSchedule {
+// Workflow types
+export interface WorkflowStep {
+  id: string;
+  label: string;
+  taskNames: string; // JSON string
+  args: string | null;
+  kwargs: string | null;
+  queue: string | null;
+  dependsOn: string; // JSON string of step IDs
+  condition: string;
+}
+
+export interface Workflow {
   id: string;
   name: string;
-  taskNames: string;
+  description: string | null;
   scheduleType: string;
   intervalSeconds: number | null;
   cronExpression: string | null;
-  queue: string;
-  args: string | null;
-  kwargs: string | null;
-  enabled: boolean | null;
+  enabled: boolean;
   maxRunCount: number | null;
   totalRunCount: number;
   lastRunAt: string | null;
   nextRunAt: string | null;
   createdAt: string;
+  updatedAt: string;
+  steps: WorkflowStep[];
 }
 
-// Beat execution log entry
-export interface BeatRun {
+export interface WorkflowSummary {
   id: string;
-  scheduledAt: string | null;
-  sentAt: string | null;
+  name: string;
+  description: string | null;
+  scheduleType: string;
+  intervalSeconds: number | null;
+  cronExpression: string | null;
+  enabled: boolean;
+  maxRunCount: number | null;
+  totalRunCount: number;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  stepCount: number;
+}
+
+export interface TaskRunDetail {
+  id: string;
   taskId: string | null;
-  taskName: string | null;
-  status: string | null;
+  taskName: string;
+  args: string | null;
+  kwargs: string | null;
+  queue: string | null;
+  status: string;
   error: string | null;
+  sentAt: string | null;
+}
+
+export interface StepRunDetail {
+  id: string;
+  stepId: string;
+  stepLabel: string;
+  status: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  taskRuns: TaskRunDetail[];
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflowId: string;
+  status: string;
+  trigger: string;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface WorkflowRunDetail {
+  id: string;
+  workflowId: string;
+  status: string;
+  trigger: string;
+  startedAt: string;
+  finishedAt: string | null;
+  stepRuns: StepRunDetail[];
 }
 
 // Event provider state

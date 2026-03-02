@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import type { BeatSchedule } from "@/lib/types";
+import { useNavigate } from "react-router-dom";
+import type { WorkflowSummary } from "@/lib/types";
 import {
   Table,
   TableBody,
@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { formatSchedule } from "@/lib/scheduler/cron";
 import { apiPost } from "@/lib/api";
 
-function computeRelativeLabel(iso: string): string {
+function _computeRelativeLabel(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
   const diff = d.getTime() - now.getTime();
@@ -31,9 +31,9 @@ function computeRelativeLabel(iso: string): string {
   return label;
 }
 
-function RelativeTime({ iso, warnIfPast }: { iso: string | null; warnIfPast?: boolean }) {
+function _RelativeTime({ iso, warnIfPast }: { iso: string | null; warnIfPast?: boolean }) {
   const [label, setLabel] = useState(() =>
-    iso ? computeRelativeLabel(iso) : "—"
+    iso ? _computeRelativeLabel(iso) : "—"
   );
   const [isPast, setIsPast] = useState(() =>
     iso ? new Date(iso).getTime() < Date.now() : false
@@ -42,7 +42,7 @@ function RelativeTime({ iso, warnIfPast }: { iso: string | null; warnIfPast?: bo
   useEffect(() => {
     if (!iso) return;
     const update = () => {
-      setLabel(computeRelativeLabel(iso));
+      setLabel(_computeRelativeLabel(iso));
       setIsPast(new Date(iso).getTime() < Date.now());
     };
     update();
@@ -62,14 +62,20 @@ function RelativeTime({ iso, warnIfPast }: { iso: string | null; warnIfPast?: bo
   );
 }
 
-export function BeatTable({ beats, onRefresh }: { beats: BeatSchedule[]; onRefresh?: () => void }) {
+export function WorkflowTable({
+  workflows,
+  onRefresh,
+}: {
+  workflows: WorkflowSummary[];
+  onRefresh?: () => void;
+}) {
   const navigate = useNavigate();
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const handleToggle = async (id: string) => {
     setTogglingId(id);
     try {
-      await apiPost(`/api/beats/${id}/toggle`);
+      await apiPost(`/api/workflows/${id}/toggle`);
       onRefresh?.();
     } catch {
       // ignore
@@ -78,12 +84,12 @@ export function BeatTable({ beats, onRefresh }: { beats: BeatSchedule[]; onRefre
     }
   };
 
-  if (beats.length === 0) {
+  if (workflows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
-        <p className="text-muted-foreground">No beat schedules yet</p>
+        <p className="text-muted-foreground">No workflows yet</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Create one to start dispatching periodic tasks
+          Create one to start orchestrating tasks
         </p>
       </div>
     );
@@ -95,9 +101,8 @@ export function BeatTable({ beats, onRefresh }: { beats: BeatSchedule[]; onRefre
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
-            <TableHead>Tasks</TableHead>
+            <TableHead className="text-center">Steps</TableHead>
             <TableHead>Schedule</TableHead>
-            <TableHead>Queue</TableHead>
             <TableHead>Last Run</TableHead>
             <TableHead>Next Run</TableHead>
             <TableHead className="text-center">Runs</TableHead>
@@ -105,53 +110,42 @@ export function BeatTable({ beats, onRefresh }: { beats: BeatSchedule[]; onRefre
           </TableRow>
         </TableHeader>
         <TableBody>
-          {beats.map((beat) => (
+          {workflows.map((wf) => (
             <TableRow
-              key={beat.id}
+              key={wf.id}
               className="cursor-pointer"
-              onClick={() => navigate(`/beats/${beat.id}`)}
+              onClick={() => navigate(`/workflows/${wf.id}`)}
             >
-              <TableCell className="font-medium">{beat.name}</TableCell>
-              <TableCell className="font-mono text-xs" onClick={(e) => e.stopPropagation()}>
-                {(() => {
-                  const names: string[] = JSON.parse(beat.taskNames || "[]");
-                  if (names.length === 0) return "—";
-                  return names.map((n, i) => (
-                    <span key={n}>
-                      {i > 0 && <span className="text-muted-foreground">, </span>}
-                      <Link to={`/tasks/${encodeURIComponent(n)}`} className="hover:underline">
-                        {n}
-                      </Link>
-                    </span>
-                  ));
-                })()}
+              <TableCell className="font-medium">
+                <div>
+                  {wf.name}
+                  {wf.description && (
+                    <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                      {wf.description}
+                    </p>
+                  )}
+                </div>
               </TableCell>
+              <TableCell className="text-center">{wf.stepCount}</TableCell>
               <TableCell>
                 <Badge variant="outline" className="font-mono text-xs">
-                  {formatSchedule(
-                    beat.scheduleType,
-                    beat.intervalSeconds,
-                    beat.cronExpression
-                  )}
+                  {formatSchedule(wf.scheduleType, wf.intervalSeconds, wf.cronExpression)}
                 </Badge>
               </TableCell>
-              <TableCell>{beat.queue}</TableCell>
               <TableCell className="text-sm">
-                <RelativeTime iso={beat.lastRunAt} />
+                <_RelativeTime iso={wf.lastRunAt} />
               </TableCell>
               <TableCell className="text-sm">
-                {beat.enabled ? (
-                  <RelativeTime iso={beat.nextRunAt} warnIfPast />
+                {wf.enabled && wf.scheduleType !== "none" ? (
+                  <_RelativeTime iso={wf.nextRunAt} warnIfPast />
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}
               </TableCell>
               <TableCell className="text-center">
-                {beat.totalRunCount}
-                {beat.maxRunCount != null && (
-                  <span className="text-muted-foreground">
-                    /{beat.maxRunCount}
-                  </span>
+                {wf.totalRunCount}
+                {wf.maxRunCount != null && (
+                  <span className="text-muted-foreground">/{wf.maxRunCount}</span>
                 )}
               </TableCell>
               <TableCell
@@ -159,9 +153,9 @@ export function BeatTable({ beats, onRefresh }: { beats: BeatSchedule[]; onRefre
                 onClick={(e) => e.stopPropagation()}
               >
                 <Switch
-                  checked={beat.enabled ?? false}
-                  onCheckedChange={() => handleToggle(beat.id)}
-                  disabled={togglingId === beat.id}
+                  checked={wf.enabled}
+                  onCheckedChange={() => handleToggle(wf.id)}
+                  disabled={togglingId === wf.id}
                 />
               </TableCell>
             </TableRow>
