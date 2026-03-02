@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { parseJson } from "@/lib/workflow-utils";
 import {
   Dialog,
   DialogContent,
@@ -53,11 +54,11 @@ function _workflowToExportJson(workflow: Workflow): string {
       steps: workflow.steps.map((s) => ({
         id: s.id,
         label: s.label,
-        taskNames: JSON.parse(s.taskNames || "[]"),
+        taskNames: parseJson<string[]>(s.taskNames, []),
         args: s.args,
         kwargs: s.kwargs,
         queue: s.queue,
-        dependsOn: JSON.parse(s.dependsOn || "[]"),
+        dependsOn: parseJson<string[]>(s.dependsOn, []),
         condition: s.condition,
       })),
     },

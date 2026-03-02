@@ -6,8 +6,6 @@ interface DagNodeProps {
   label: string;
   taskNames: string[];
   status?: string;
-  condition?: string;
-  isRoot?: boolean;
 }
 
 const _statusConfig: Record<string, { icon: React.ElementType; className: string }> = {

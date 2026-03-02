@@ -9,29 +9,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-
-function _formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString();
-}
-
-function _StatusBadge({ status }: { status: string }) {
-  const variant =
-    status === "succeeded"
-      ? "default"
-      : status === "failed"
-        ? "destructive"
-        : "outline";
-  return <Badge variant={variant}>{status}</Badge>;
-}
-
-function _formatDuration(start: string, end: string | null): string {
-  if (!end) return "—";
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.round(ms / 60000)}m`;
-}
+import {
+  formatWorkflowDate,
+  WorkflowStatusBadge,
+  formatWorkflowDuration,
+} from "@/lib/workflow-utils";
 
 export function WorkflowRunHistory({
   runs,
@@ -68,9 +50,9 @@ export function WorkflowRunHistory({
               className="cursor-pointer"
               onClick={() => navigate(`/workflows/${workflowId}/runs/${run.id}`)}
             >
-              <TableCell className="text-sm">{_formatDate(run.startedAt)}</TableCell>
+              <TableCell className="text-sm">{formatWorkflowDate(run.startedAt)}</TableCell>
               <TableCell>
-                <_StatusBadge status={run.status} />
+                <WorkflowStatusBadge status={run.status} />
               </TableCell>
               <TableCell>
                 <Badge variant="secondary" className="text-xs">
@@ -78,7 +60,7 @@ export function WorkflowRunHistory({
                 </Badge>
               </TableCell>
               <TableCell className="text-sm">
-                {_formatDuration(run.startedAt, run.finishedAt)}
+                {formatWorkflowDuration(run.startedAt, run.finishedAt)}
               </TableCell>
             </TableRow>
           ))}

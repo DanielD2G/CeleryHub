@@ -9,6 +9,8 @@ from typing import Any
 import httpx
 import pytest
 
+from conftest import simple_workflow
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -41,25 +43,6 @@ async def _poll_until(
 def _uid() -> str:
     """Generate a short unique id for step IDs."""
     return uuid.uuid4().hex[:8]
-
-
-def _simple_workflow(
-    name: str = "test-wf",
-    task: str = "integration.add",
-    args: str = "[2, 3]",
-) -> dict[str, Any]:
-    """Return a minimal workflow payload with one step."""
-    return {
-        "name": name,
-        "steps": [
-            {
-                "id": f"step-{_uid()}",
-                "label": "Step A",
-                "taskNames": [task],
-                "args": args,
-            }
-        ],
-    }
 
 
 # ===================================================================
@@ -213,14 +196,14 @@ class TestWorkflowCRUD:
         self, api_client: httpx.AsyncClient
     ) -> None:
         resp = await api_client.post(
-            "/api/workflows", json=_simple_workflow("crud-create")
+            "/api/workflows", json=simple_workflow("crud-create")
         )
         assert resp.status_code == 201
         assert "id" in resp.json()
 
     async def test_get_workflow(self, api_client: httpx.AsyncClient) -> None:
         create_resp = await api_client.post(
-            "/api/workflows", json=_simple_workflow("crud-get")
+            "/api/workflows", json=simple_workflow("crud-get")
         )
         wf_id: str = create_resp.json()["id"]
 
@@ -234,7 +217,7 @@ class TestWorkflowCRUD:
         self, api_client: httpx.AsyncClient
     ) -> None:
         await api_client.post(
-            "/api/workflows", json=_simple_workflow("crud-list")
+            "/api/workflows", json=simple_workflow("crud-list")
         )
         resp = await api_client.get("/api/workflows")
         assert resp.status_code == 200
@@ -245,7 +228,7 @@ class TestWorkflowCRUD:
         self, api_client: httpx.AsyncClient
     ) -> None:
         create_resp = await api_client.post(
-            "/api/workflows", json=_simple_workflow("crud-update-old")
+            "/api/workflows", json=simple_workflow("crud-update-old")
         )
         wf_id: str = create_resp.json()["id"]
 
@@ -262,7 +245,7 @@ class TestWorkflowCRUD:
         self, api_client: httpx.AsyncClient
     ) -> None:
         create_resp = await api_client.post(
-            "/api/workflows", json=_simple_workflow("crud-delete")
+            "/api/workflows", json=simple_workflow("crud-delete")
         )
         wf_id: str = create_resp.json()["id"]
 
@@ -275,7 +258,7 @@ class TestWorkflowCRUD:
     async def test_toggle_workflow(
         self, api_client: httpx.AsyncClient
     ) -> None:
-        payload = _simple_workflow("crud-toggle")
+        payload = simple_workflow("crud-toggle")
         payload["enabled"] = True
         create_resp = await api_client.post("/api/workflows", json=payload)
         wf_id: str = create_resp.json()["id"]
@@ -304,7 +287,7 @@ class TestWorkflowDuplicateImport:
         self, api_client: httpx.AsyncClient
     ) -> None:
         create_resp = await api_client.post(
-            "/api/workflows", json=_simple_workflow("dup-original")
+            "/api/workflows", json=simple_workflow("dup-original")
         )
         wf_id: str = create_resp.json()["id"]
 
@@ -324,7 +307,7 @@ class TestWorkflowDuplicateImport:
         self, api_client: httpx.AsyncClient
     ) -> None:
         create_resp = await api_client.post(
-            "/api/workflows", json=_simple_workflow("dup-default")
+            "/api/workflows", json=simple_workflow("dup-default")
         )
         wf_id: str = create_resp.json()["id"]
 
@@ -374,7 +357,7 @@ class TestWorkflowExecution:
         self, api_client: httpx.AsyncClient
     ) -> None:
         create_resp = await api_client.post(
-            "/api/workflows", json=_simple_workflow("exec-single")
+            "/api/workflows", json=simple_workflow("exec-single")
         )
         wf_id: str = create_resp.json()["id"]
 
@@ -627,7 +610,7 @@ class TestAuth:
         self, anon_client: httpx.AsyncClient
     ) -> None:
         resp = await anon_client.post(
-            "/api/workflows", json=_simple_workflow("no-auth")
+            "/api/workflows", json=simple_workflow("no-auth")
         )
         assert resp.status_code == 401
 
@@ -636,7 +619,7 @@ class TestAuth:
     ) -> None:
         resp = await anon_client.post(
             "/api/workflows",
-            json=_simple_workflow("bad-auth"),
+            json=simple_workflow("bad-auth"),
             headers={"Authorization": "Bearer wrong-token"},
         )
         assert resp.status_code == 401

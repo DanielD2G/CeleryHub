@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 from ..db import get_session
 from ..db.models import StepRun, Workflow, WorkflowRun, WorkflowStep
 from ..middleware.auth import require_auth
-from pydantic import BaseModel
+from ..models.base import CamelModel
 
 from ..models.workflows import (
     CreateWorkflowInput,
@@ -111,6 +111,28 @@ def _validate_schedule_fields(
 
 
 # ---------------------------------------------------------------------------
+# Step ID remapping
+# ---------------------------------------------------------------------------
+
+
+def _build_step_id_map(step_ids: list[str]) -> dict[str, str]:
+    """Map client-provided step IDs to server-generated UUIDs."""
+    return {sid: str(uuid.uuid4()) for sid in step_ids}
+
+
+def _remap_step_ids(steps: list[StepInput]) -> list[StepInput]:
+    """Replace client-provided step IDs with server-generated UUIDs."""
+    id_map = _build_step_id_map([s.id for s in steps])
+    return [
+        step.model_copy(update={
+            "id": id_map[step.id],
+            "depends_on": [id_map.get(d, d) for d in step.depends_on],
+        })
+        for step in steps
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -147,6 +169,7 @@ async def list_workflows() -> Any:
 @router.post("", response_model=None, dependencies=[Depends(require_auth)])
 async def create_workflow(body: CreateWorkflowInput) -> JSONResponse:
     _validate_dag(body.steps)
+    steps = _remap_step_ids(body.steps)
 
     schedule_type = body.schedule_type
     if schedule_type != "none":
@@ -185,7 +208,7 @@ async def create_workflow(body: CreateWorkflowInput) -> JSONResponse:
         )
         session.add(workflow)
 
-        for step in body.steps:
+        for step in steps:
             ws = WorkflowStep(
                 id=step.id,
                 workflow_id=workflow_id,
@@ -202,6 +225,41 @@ async def create_workflow(body: CreateWorkflowInput) -> JSONResponse:
         await session.commit()
 
     return JSONResponse({"id": workflow_id}, status_code=201)
+
+
+@router.get(
+    "/runs/{run_id}", response_model=WorkflowRunDetailResponse
+)
+async def get_workflow_run_detail(run_id: str) -> Any:
+    async with get_session() as session:
+        result = await session.execute(
+            select(WorkflowRun)
+            .options(
+                selectinload(WorkflowRun.step_runs).selectinload(StepRun.task_runs)
+            )
+            .where(WorkflowRun.id == run_id)
+            .limit(1)
+        )
+        wf_run = result.scalar_one_or_none()
+        if not wf_run:
+            raise HTTPException(status_code=404, detail="Workflow run not found")
+        return wf_run
+
+
+@router.post(
+    "/runs/{run_id}/cancel",
+    response_model=None,
+    dependencies=[Depends(require_auth)],
+)
+async def cancel_run(run_id: str) -> JSONResponse:
+    from ..services.workflow_engine import cancel_workflow_run
+
+    cancelled: bool = await cancel_workflow_run(run_id)
+    if not cancelled:
+        raise HTTPException(
+            status_code=404, detail="Workflow run not found or not running"
+        )
+    return JSONResponse({"ok": True})
 
 
 @router.get("/{workflow_id}", response_model=WorkflowResponse)
@@ -250,6 +308,7 @@ async def update_workflow(
                     status_code=400, detail="At least one step is required"
                 )
             _validate_dag(new_steps)
+            new_steps = _remap_step_ids(new_steps)
 
         schedule_type = updates.get("schedule_type", existing.schedule_type)
         interval_seconds = updates.get("interval_seconds", existing.interval_seconds)
@@ -377,7 +436,7 @@ async def toggle_workflow(workflow_id: str) -> JSONResponse:
     return JSONResponse({"enabled": new_enabled})
 
 
-class _DuplicateInput(BaseModel):
+class _DuplicateInput(CamelModel):
     name: str | None = None
 
 
@@ -404,9 +463,9 @@ async def duplicate_workflow(
         now = datetime.now(timezone.utc)
 
         # Remap step IDs so the copy is fully independent
-        _id_map: dict[str, str] = {
-            step.id: str(uuid.uuid4()) for step in existing.steps
-        }
+        _id_map: dict[str, str] = _build_step_id_map(
+            [step.id for step in existing.steps]
+        )
 
         workflow = Workflow(
             id=new_workflow_id,
@@ -486,34 +545,3 @@ async def get_workflow_runs(
             .limit(limit)
         )
         return result.scalars().all()
-
-
-@router.get(
-    "/runs/{run_id}", response_model=WorkflowRunDetailResponse
-)
-async def get_workflow_run_detail(run_id: str) -> Any:
-    async with get_session() as session:
-        result = await session.execute(
-            select(WorkflowRun)
-            .options(
-                selectinload(WorkflowRun.step_runs).selectinload(StepRun.task_runs)
-            )
-            .where(WorkflowRun.id == run_id)
-            .limit(1)
-        )
-        wf_run = result.scalar_one_or_none()
-        if not wf_run:
-            raise HTTPException(status_code=404, detail="Workflow run not found")
-        return wf_run
-
-
-@router.post(
-    "/runs/{run_id}/cancel",
-    response_model=None,
-    dependencies=[Depends(require_auth)],
-)
-async def cancel_run(run_id: str) -> JSONResponse:
-    from ..services.workflow_engine import cancel_workflow_run
-
-    await cancel_workflow_run(run_id)
-    return JSONResponse({"ok": True})

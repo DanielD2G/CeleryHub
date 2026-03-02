@@ -60,6 +60,13 @@ function _generateStepId(): string {
   return `step-${Date.now()}-${_nextStepId++}`;
 }
 
+function _detectIntervalUnit(seconds: number): { value: number; unit: string } {
+  if (seconds > 0 && seconds % 86400 === 0) return { value: seconds / 86400, unit: "days" };
+  if (seconds > 0 && seconds % 3600 === 0) return { value: seconds / 3600, unit: "hours" };
+  if (seconds > 0 && seconds % 60 === 0) return { value: seconds / 60, unit: "minutes" };
+  return { value: seconds, unit: "seconds" };
+}
+
 export function WorkflowForm({
   initialValues,
   onSubmit,
@@ -70,12 +77,15 @@ export function WorkflowForm({
   const [scheduleType, setScheduleType] = useState<"none" | "interval" | "cron">(
     (initialValues?.scheduleType as "none" | "interval" | "cron") || "none"
   );
-  const [intervalValue, setIntervalValue] = useState(
-    initialValues?.intervalSeconds
-      ? String(initialValues.intervalSeconds)
-      : "10"
+  const { value: _detectedValue, unit: _detectedUnit } = _detectIntervalUnit(
+    initialValues?.intervalSeconds ?? 0
   );
-  const [intervalUnit, setIntervalUnit] = useState("seconds");
+  const [intervalValue, setIntervalValue] = useState(
+    initialValues?.intervalSeconds ? String(_detectedValue) : "10"
+  );
+  const [intervalUnit, setIntervalUnit] = useState(
+    initialValues?.intervalSeconds ? _detectedUnit : "seconds"
+  );
   const [cronExpression, setCronExpression] = useState(
     initialValues?.cronExpression || "* * * * *"
   );

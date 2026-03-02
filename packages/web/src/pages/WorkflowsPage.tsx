@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { PageHeader } from "@/components/page-header";
 import { WorkflowTable } from "@/components/workflows/workflow-table";
@@ -13,7 +13,7 @@ export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchWorkflows = async () => {
+  const fetchWorkflows = useCallback(async () => {
     try {
       setWorkflows(await apiGet<WorkflowSummary[]>("/api/workflows"));
     } catch {
@@ -21,13 +21,13 @@ export default function WorkflowsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchWorkflows();
     const id = setInterval(fetchWorkflows, 5000);
     return () => clearInterval(id);
-  }, []);
+  }, [fetchWorkflows]);
 
   return (
     <div className="space-y-6">

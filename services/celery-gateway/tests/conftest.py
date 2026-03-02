@@ -47,8 +47,9 @@ async def db_session(
 
     with (
         patch("celery_gateway.db.get_session", _override_get_session),
-        patch("celery_gateway.routers.beats.get_session", _override_get_session),
-        patch("celery_gateway.services.beat_scheduler.get_session", _override_get_session),
+        patch("celery_gateway.routers.workflows.get_session", _override_get_session),
+        patch("celery_gateway.services.scheduler.get_session", _override_get_session),
+        patch("celery_gateway.services.workflow_engine.get_session", _override_get_session),
         patch("celery_gateway.services.event_collector.get_session", _override_get_session),
     ):
         async with factory() as session:
@@ -156,7 +157,7 @@ async def client(
         patch("celery_gateway.main.celery_app", mock_celery_app),
         patch("celery_gateway.routers.tasks.celery_app", mock_celery_app),
         patch("celery_gateway.routers.control.celery_app", mock_celery_app),
-        patch("celery_gateway.services.beat_scheduler.celery_app", mock_celery_app),
+        patch("celery_gateway.services.scheduler.celery_app", mock_celery_app),
     ):
         transport = ASGITransport(app=app, raise_app_exceptions=False)
         async with AsyncClient(

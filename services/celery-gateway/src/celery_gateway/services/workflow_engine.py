@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid as _uuid
@@ -18,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 _TERMINAL_STEP_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "skipped"})
 _TERMINAL_TASK_STATUSES: frozenset[str] = frozenset({"SUCCESS", "FAILURE"})
+
+_workflow_run_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_run_lock(workflow_run_id: str) -> asyncio.Lock:
+    """Get or create an asyncio.Lock for a specific workflow run."""
+    if workflow_run_id not in _workflow_run_locks:
+        _workflow_run_locks[workflow_run_id] = asyncio.Lock()
+    return _workflow_run_locks[workflow_run_id]
+
+
+def _cleanup_run_lock(workflow_run_id: str) -> None:
+    """Remove the lock for a finished workflow run to prevent memory leaks."""
+    _workflow_run_locks.pop(workflow_run_id, None)
 
 
 async def start_workflow_run(workflow_id: str, *, trigger: str = "manual") -> str:
@@ -106,8 +121,8 @@ async def on_task_completed(
         await _advance_workflow(workflow_run_id)
 
 
-async def cancel_workflow_run(workflow_run_id: str) -> None:
-    """Cancel a running workflow run."""
+async def cancel_workflow_run(workflow_run_id: str) -> bool:
+    """Cancel a running workflow run. Returns False if not found or not running."""
     async with get_session() as session:
         result = await session.execute(
             select(WorkflowRun)
@@ -116,7 +131,7 @@ async def cancel_workflow_run(workflow_run_id: str) -> None:
         )
         wf_run = result.scalar_one_or_none()
         if wf_run is None or wf_run.status != "running":
-            return
+            return False
 
         now = datetime.now(timezone.utc)
         wf_run.status = "cancelled"
@@ -128,95 +143,105 @@ async def cancel_workflow_run(workflow_run_id: str) -> None:
                 sr.finished_at = now
 
         await session.commit()
+        _cleanup_run_lock(workflow_run_id)
+    return True
 
 
 async def _advance_workflow(workflow_run_id: str) -> None:
     """Evaluate pending steps and dispatch those whose dependencies are met."""
-    async with get_session() as session:
-        result = await session.execute(
-            select(WorkflowRun)
-            .options(
-                selectinload(WorkflowRun.step_runs).selectinload(StepRun.task_runs)
-            )
-            .where(WorkflowRun.id == workflow_run_id)
-        )
-        wf_run = result.scalar_one_or_none()
-        if wf_run is None or wf_run.status != "running":
-            return
-
-        # Load step definitions for this workflow
-        steps_result = await session.execute(
-            select(WorkflowStep).where(WorkflowStep.workflow_id == wf_run.workflow_id)
-        )
-        step_defs: dict[str, WorkflowStep] = {
-            s.id: s for s in steps_result.scalars().all()
-        }
-
-        step_run_by_step_id: dict[str, StepRun] = {
-            sr.step_id: sr for sr in wf_run.step_runs
-        }
-
-        had_changes: bool = True
-        while had_changes:
-            had_changes = False
-            for sr in wf_run.step_runs:
-                if sr.status != "pending":
-                    continue
-
-                step_def = step_defs.get(sr.step_id)
-                if step_def is None:
-                    sr.status = "skipped"
-                    sr.finished_at = datetime.now(timezone.utc)
-                    had_changes = True
-                    continue
-
-                dep_ids: list[str] = json.loads(step_def.depends_on or "[]")
-
-                if not dep_ids:
-                    # Root step — dispatch immediately
-                    await _dispatch_step(session, sr, step_def)
-                    had_changes = True
-                    continue
-
-                # Check if all dependencies are terminal
-                dep_step_runs: list[StepRun] = [
-                    step_run_by_step_id[d]
-                    for d in dep_ids
-                    if d in step_run_by_step_id
-                ]
-                if len(dep_step_runs) != len(dep_ids):
-                    sr.status = "skipped"
-                    sr.finished_at = datetime.now(timezone.utc)
-                    had_changes = True
-                    continue
-
-                all_deps_terminal: bool = all(
-                    d.status in _TERMINAL_STEP_STATUSES for d in dep_step_runs
+    _run_terminal: bool = False
+    async with _get_run_lock(workflow_run_id):
+        async with get_session() as session:
+            result = await session.execute(
+                select(WorkflowRun)
+                .options(
+                    selectinload(WorkflowRun.step_runs).selectinload(StepRun.task_runs)
                 )
-                if not all_deps_terminal:
-                    continue
-
-                # Evaluate condition
-                if _evaluate_condition(step_def.condition, dep_step_runs):
-                    await _dispatch_step(session, sr, step_def)
-                    had_changes = True
-                else:
-                    sr.status = "skipped"
-                    sr.finished_at = datetime.now(timezone.utc)
-                    had_changes = True
-
-        # Check if workflow run is complete
-        all_terminal: bool = all(
-            sr.status in _TERMINAL_STEP_STATUSES for sr in wf_run.step_runs
-        )
-        if all_terminal:
-            any_failed: bool = any(
-                sr.status == "failed" for sr in wf_run.step_runs
+                .where(WorkflowRun.id == workflow_run_id)
             )
-            wf_run.status = "failed" if any_failed else "succeeded"
-            wf_run.finished_at = datetime.now(timezone.utc)
+            wf_run = result.scalar_one_or_none()
+            if wf_run is None or wf_run.status != "running":
+                return
 
-        await session.commit()
+            # Load step definitions for this workflow
+            steps_result = await session.execute(
+                select(WorkflowStep).where(
+                    WorkflowStep.workflow_id == wf_run.workflow_id
+                )
+            )
+            step_defs: dict[str, WorkflowStep] = {
+                s.id: s for s in steps_result.scalars().all()
+            }
+
+            step_run_by_step_id: dict[str, StepRun] = {
+                sr.step_id: sr for sr in wf_run.step_runs
+            }
+
+            had_changes: bool = True
+            while had_changes:
+                had_changes = False
+                for sr in wf_run.step_runs:
+                    if sr.status != "pending":
+                        continue
+
+                    step_def = step_defs.get(sr.step_id)
+                    if step_def is None:
+                        sr.status = "skipped"
+                        sr.finished_at = datetime.now(timezone.utc)
+                        had_changes = True
+                        continue
+
+                    dep_ids: list[str] = json.loads(step_def.depends_on or "[]")
+
+                    if not dep_ids:
+                        # Root step — dispatch immediately
+                        await _dispatch_step(session, sr, step_def)
+                        had_changes = True
+                        continue
+
+                    # Check if all dependencies are terminal
+                    dep_step_runs: list[StepRun] = [
+                        step_run_by_step_id[d]
+                        for d in dep_ids
+                        if d in step_run_by_step_id
+                    ]
+                    if len(dep_step_runs) != len(dep_ids):
+                        sr.status = "skipped"
+                        sr.finished_at = datetime.now(timezone.utc)
+                        had_changes = True
+                        continue
+
+                    all_deps_terminal: bool = all(
+                        d.status in _TERMINAL_STEP_STATUSES for d in dep_step_runs
+                    )
+                    if not all_deps_terminal:
+                        continue
+
+                    # Evaluate condition
+                    if _evaluate_condition(step_def.condition, dep_step_runs):
+                        await _dispatch_step(session, sr, step_def)
+                        had_changes = True
+                    else:
+                        sr.status = "skipped"
+                        sr.finished_at = datetime.now(timezone.utc)
+                        had_changes = True
+
+            # Check if workflow run is complete
+            all_terminal: bool = all(
+                sr.status in _TERMINAL_STEP_STATUSES for sr in wf_run.step_runs
+            )
+            if all_terminal:
+                any_failed: bool = any(
+                    sr.status == "failed" for sr in wf_run.step_runs
+                )
+                wf_run.status = "failed" if any_failed else "succeeded"
+                wf_run.finished_at = datetime.now(timezone.utc)
+                _run_terminal = True
+
+            await session.commit()
+
+    if _run_terminal:
+        _cleanup_run_lock(workflow_run_id)
 
 
 def _evaluate_condition(condition: str, dep_step_runs: list[StepRun]) -> bool:
@@ -244,6 +269,7 @@ async def _dispatch_step(
     kwargs: dict[str, Any] = json.loads(step_def.kwargs or "{}")
     queue: str = step_def.queue or "celery"
 
+    _dispatched: list[TaskRun] = []
     for task_name in task_names:
         task_id: str | None = None
         error: str | None = None
@@ -268,8 +294,12 @@ async def _dispatch_step(
             sent_at=datetime.now(timezone.utc),
         )
         session.add(task_run)
+        _dispatched.append(task_run)
 
-    # If no tasks (shouldn't happen but be safe)
-    if not task_names:
+    # If all tasks failed immediately during dispatch, mark step as failed
+    if task_names and all(tr.status == "FAILURE" for tr in _dispatched):
+        step_run.status = "failed"
+        step_run.finished_at = datetime.now(timezone.utc)
+    elif not task_names:
         step_run.status = "succeeded"
         step_run.finished_at = datetime.now(timezone.utc)
