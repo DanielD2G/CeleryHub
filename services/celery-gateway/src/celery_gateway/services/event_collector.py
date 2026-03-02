@@ -137,17 +137,22 @@ async def _update_run_status(
                 .values(**values)
             )
             await session.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "[CeleryHub EventCollector] Failed to update TaskRun %s: %s",
+            task_uuid,
+            exc,
+        )
 
     try:
         from .workflow_engine import on_task_completed
 
         await on_task_completed(task_uuid, status, error=error)
-    except Exception:
-        logger.debug(
-            "[CeleryHub EventCollector] Workflow engine error for %s",
+    except Exception as exc:
+        logger.warning(
+            "[CeleryHub EventCollector] Workflow engine error for %s: %s",
             task_uuid,
+            exc,
         )
 
 
