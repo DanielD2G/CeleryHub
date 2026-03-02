@@ -1,0 +1,41 @@
+# dependencies
+node_modules
+
+# build output
+packages/web/dist
+
+# misc
+.DS_Store
+*.pem
+package-lock.json
+
+# claude code
+.claude/
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# env files
+.env*
+!.env.example
+
+# IDE
+.idea/
+
+# database
+/data/
+*.db
+*.sqlite
+
+# typescript
+*.tsbuildinfo
+
+# python
+__pycache__/
+*.pyc
+.venv
+.coverage
+.pytest_cache/
+htmlcov/

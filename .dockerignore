@@ -1,0 +1,11 @@
+node_modules
+packages/web/dist
+.git
+.claude
+__pycache__
+*.pyc
+.venv
+services/celery-gateway/.venv
+data/
+*.tsbuildinfo
+.env*
