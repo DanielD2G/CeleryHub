@@ -101,11 +101,27 @@ docker: ## Build unified Docker image
 
 # ── Test & Lint ──────────────────────────────
 
-.PHONY: test lint
+.PHONY: test test-integration lint
 
 test: _check-gateway ## Run Python tests
 	@echo -e "$(_cyan)▸ Running tests...$(_reset)"
 	cd $(GATEWAY_DIR) && $(GATEWAY_VENV)/bin/pytest tests/ -v
+
+INTEGRATION_DIR  := $(ROOT)/tests/integration
+COMPOSE_TEST     := $(INTEGRATION_DIR)/docker-compose.test.yml
+
+test-integration: ## Run integration tests (Docker required)
+	@echo -e "$(_cyan)▸ Starting test infrastructure...$(_reset)"
+	docker compose -f $(COMPOSE_TEST) up --build -d --wait
+	@echo -e "$(_cyan)▸ Installing test dependencies...$(_reset)"
+	pip install -q -r $(INTEGRATION_DIR)/requirements.txt
+	playwright install --with-deps chromium 2>/dev/null || playwright install chromium
+	@echo -e "$(_cyan)▸ Running integration tests...$(_reset)"
+	cd $(INTEGRATION_DIR) && python -m pytest -v --timeout=120 --browser chromium; \
+	_exit=$$?; \
+	echo -e "$(_cyan)▸ Tearing down test infrastructure...$(_reset)"; \
+	docker compose -f $(COMPOSE_TEST) down -v --remove-orphans; \
+	exit $$_exit
 
 lint: _check-gateway ## Lint Python code with ruff
 	@echo -e "$(_cyan)▸ Linting Python code...$(_reset)"

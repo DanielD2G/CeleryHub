@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic.alias_generators import to_camel
+
+
+def validate_json_string(v: str | None, field_name: str) -> str | None:
+    """Validate that *v* is a valid JSON string, or ``None``."""
+    if v is None:
+        return v
+    try:
+        json.loads(v)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError(f"Invalid JSON for {field_name}") from exc
+    return v
 
 
 class CamelModel(BaseModel):

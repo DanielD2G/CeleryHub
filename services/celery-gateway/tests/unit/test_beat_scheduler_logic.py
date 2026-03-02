@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from celery_gateway.services.beat_scheduler import (
+from celery_gateway.services.scheduler import (
     compute_next_run_at,
     validate_cron_expression,
 )

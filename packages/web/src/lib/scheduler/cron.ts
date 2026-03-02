@@ -6,6 +6,8 @@ export function formatSchedule(
   intervalSeconds: number | null,
   cronExpression: string | null
 ): string {
+  if (scheduleType === "none") return "manual";
+
   if (scheduleType === "cron" && cronExpression) {
     return `cron: ${cronExpression}`;
   }

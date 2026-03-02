@@ -3,11 +3,12 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from celery_gateway.models.beats import (
-    BeatRunResponse,
-    BeatScheduleResponse,
-    CreateBeatInput,
-    UpdateBeatInput,
+from celery_gateway.models.workflows import (
+    CreateWorkflowInput,
+    StepInput,
+    UpdateWorkflowInput,
+    WorkflowResponse,
+    WorkflowRunResponse,
 )
 from celery_gateway.models.tasks import (
     CamelModel,
@@ -109,61 +110,102 @@ class TestSendTaskRequest:
         assert req.eta is None
 
 
-class TestCreateBeatInput:
+class TestCreateWorkflowInput:
     def test_camel_case_input(self) -> None:
         data = {
-            "taskNames": ["tasks.add"],
-            "scheduleType": "interval",
             "name": "test",
+            "scheduleType": "interval",
+            "intervalSeconds": 60,
+            "steps": [
+                {
+                    "id": "s1",
+                    "label": "Step 1",
+                    "taskNames": ["tasks.add"],
+                }
+            ],
         }
-        inp = CreateBeatInput.model_validate(data)
-        assert inp.task_names == ["tasks.add"]
+        inp = CreateWorkflowInput.model_validate(data)
         assert inp.schedule_type == "interval"
+        assert len(inp.steps) == 1
+        assert inp.steps[0].task_names == ["tasks.add"]
 
     def test_python_field_names(self) -> None:
-        inp = CreateBeatInput(
+        inp = CreateWorkflowInput(
             name="test",
-            task_names=["a"],
             schedule_type="interval",
+            interval_seconds=60,
+            steps=[
+                StepInput(id="s1", label="Step 1", task_names=["a"]),
+            ],
         )
-        assert inp.task_names == ["a"]
         assert inp.schedule_type == "interval"
+        assert inp.steps[0].task_names == ["a"]
 
     def test_optional_fields_default_none(self) -> None:
-        inp = CreateBeatInput(
+        inp = CreateWorkflowInput(
             name="test",
-            task_names=["a"],
             schedule_type="cron",
+            steps=[
+                StepInput(id="s1", label="Step 1", task_names=["a"]),
+            ],
         )
         assert inp.interval_seconds is None
         assert inp.cron_expression is None
-        assert inp.args is None
-        assert inp.kwargs is None
-        assert inp.queue is None
         assert inp.max_run_count is None
+        assert inp.description is None
+
+    def test_default_schedule_type_none(self) -> None:
+        inp = CreateWorkflowInput(
+            name="test",
+            steps=[
+                StepInput(id="s1", label="Step 1", task_names=["a"]),
+            ],
+        )
+        assert inp.schedule_type == "none"
+        assert inp.enabled is True
+
+    def test_empty_name_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            CreateWorkflowInput(
+                name="",
+                steps=[
+                    StepInput(id="s1", label="Step 1", task_names=["a"]),
+                ],
+            )
+
+    def test_empty_steps_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            CreateWorkflowInput(name="test", steps=[])
 
 
-class TestUpdateBeatInput:
+class TestUpdateWorkflowInput:
     def test_all_optional(self) -> None:
-        inp = UpdateBeatInput()
+        inp = UpdateWorkflowInput()
         assert inp.name is None
-        assert inp.task_names is None
+        assert inp.description is None
         assert inp.schedule_type is None
         assert inp.interval_seconds is None
         assert inp.cron_expression is None
         assert inp.enabled is None
+        assert inp.steps is None
 
 
-class TestBeatScheduleResponse:
+class TestWorkflowResponse:
     def test_from_attributes(self) -> None:
-
-        class FakeORM:
-            id = "abc"
-            name = "test"
+        class FakeStep:
+            id = "step1"
+            label = "Step 1"
             task_names = '["add"]'
             args = "[]"
             kwargs = "{}"
             queue = "celery"
+            depends_on = "[]"
+            condition = "all_succeeded"
+
+        class FakeORM:
+            id = "abc"
+            name = "test"
+            description = None
             schedule_type = "interval"
             interval_seconds = 60
             cron_expression = None
@@ -174,47 +216,40 @@ class TestBeatScheduleResponse:
             next_run_at = "2025-01-01T00:01:00"
             created_at = "2025-01-01T00:00:00"
             updated_at = "2025-01-01T00:00:00"
+            steps = [FakeStep()]
 
-        resp = BeatScheduleResponse.model_validate(FakeORM(), from_attributes=True)
+        resp = WorkflowResponse.model_validate(FakeORM(), from_attributes=True)
         assert resp.id == "abc"
         assert resp.total_run_count == 5
         assert resp.interval_seconds == 60
+        assert len(resp.steps) == 1
+        assert resp.steps[0].id == "step1"
 
 
-class TestBeatRunResponse:
-    def test_required_and_optional_fields(self) -> None:
-        run = BeatRunResponse(
+class TestWorkflowRunResponse:
+    def test_required_fields(self) -> None:
+        run = WorkflowRunResponse(
             id="run1",
-            schedule_id="sched1",
-            task_id=None,
-            task_name=None,
-            args=None,
-            kwargs=None,
-            queue=None,
-            status="SENT",
-            error=None,
-            scheduled_at=None,
-            sent_at=None,
+            workflow_id="wf1",
+            status="running",
+            trigger="manual",
+            started_at="2025-01-01T00:00:00",
+            finished_at=None,
         )
-        assert run.task_id is None
-        assert run.task_name is None
-        assert run.error is None
+        assert run.status == "running"
+        assert run.finished_at is None
 
     def test_all_fields(self) -> None:
-        run = BeatRunResponse(
+        run = WorkflowRunResponse(
             id="run1",
-            schedule_id="sched1",
-            task_id="task1",
-            task_name="add",
-            args="[1]",
-            kwargs="{}",
-            queue="celery",
-            status="SENT",
-            error=None,
-            scheduled_at="2025-01-01T00:00:00",
-            sent_at="2025-01-01T00:00:00",
+            workflow_id="wf1",
+            status="succeeded",
+            trigger="scheduled",
+            started_at="2025-01-01T00:00:00",
+            finished_at="2025-01-01T00:01:00",
         )
-        assert run.task_id == "task1"
+        assert run.status == "succeeded"
+        assert run.finished_at is not None
 
 
 class TestFrontendQueueDetailsResult:
