@@ -7,14 +7,16 @@ These fixtures only wait for services to become healthy.
 from __future__ import annotations
 
 import time
-from typing import AsyncGenerator
+import uuid
+from typing import Any, AsyncGenerator
 
 import httpx
 import pytest
 import pytest_asyncio
 
 _BASE_URL = "http://localhost:3099"
-_AUTH_TOKEN = "test-token-123"
+AUTH_TOKEN = "test-token-123"
+AUTH_HEADERS: dict[str, str] = {"Authorization": f"Bearer {AUTH_TOKEN}"}
 _HEALTH_TIMEOUT = 90
 _HEALTH_INTERVAL = 2
 
@@ -91,10 +93,39 @@ async def api_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """Async HTTP client with auth header pre-configured."""
     async with httpx.AsyncClient(
         base_url=_BASE_URL,
-        headers={"Authorization": f"Bearer {_AUTH_TOKEN}"},
+        headers={"Authorization": f"Bearer {AUTH_TOKEN}"},
         timeout=30,
     ) as client:
         yield client
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _uid() -> str:
+    """Generate a short unique id for step IDs."""
+    return uuid.uuid4().hex[:8]
+
+
+def simple_workflow(
+    name: str = "test-wf",
+    task: str = "integration.add",
+    args: str = "[2, 3]",
+) -> dict[str, Any]:
+    """Return a minimal workflow payload with one step."""
+    return {
+        "name": name,
+        "steps": [
+            {
+                "id": f"step-{_uid()}",
+                "label": "Step A",
+                "taskNames": [task],
+                "args": args,
+            }
+        ],
+    }
 
 
 @pytest_asyncio.fixture

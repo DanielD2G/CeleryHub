@@ -16,29 +16,11 @@ import {
 } from "@/components/ui/table";
 import { WorkflowDag } from "@/components/workflows/workflow-dag";
 import { ArrowLeft } from "lucide-react";
-
-function _formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString();
-}
-
-function _StatusBadge({ status }: { status: string }) {
-  const variant =
-    status === "succeeded"
-      ? "default"
-      : status === "failed"
-        ? "destructive"
-        : "outline";
-  return <Badge variant={variant}>{status}</Badge>;
-}
-
-function _formatDuration(start: string, end: string | null): string {
-  if (!end) return "—";
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.round(ms / 60000)}m`;
-}
+import {
+  formatWorkflowDate,
+  WorkflowStatusBadge,
+  formatWorkflowDuration,
+} from "@/lib/workflow-utils";
 
 export default function WorkflowRunPage() {
   const { id, runId } = useParams<{ id: string; runId: string }>();
@@ -102,16 +84,16 @@ export default function WorkflowRunPage() {
             Run {run.id.slice(0, 8)}...
           </h2>
           <div className="mt-1 flex items-center gap-2">
-            <_StatusBadge status={run.status} />
+            <WorkflowStatusBadge status={run.status} />
             <Badge variant="secondary" className="text-xs">
               {run.trigger}
             </Badge>
             <span className="text-sm text-muted-foreground">
-              {_formatDate(run.startedAt)}
+              {formatWorkflowDate(run.startedAt)}
             </span>
             {run.finishedAt && (
               <span className="text-sm text-muted-foreground">
-                ({_formatDuration(run.startedAt, run.finishedAt)})
+                ({formatWorkflowDuration(run.startedAt, run.finishedAt)})
               </span>
             )}
           </div>
@@ -138,13 +120,13 @@ export default function WorkflowRunPage() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base">{sr.stepLabel}</CardTitle>
-                    <_StatusBadge status={sr.status} />
+                    <WorkflowStatusBadge status={sr.status} />
                   </div>
                   {sr.startedAt && (
                     <p className="text-xs text-muted-foreground">
-                      {_formatDate(sr.startedAt)}
+                      {formatWorkflowDate(sr.startedAt)}
                       {sr.finishedAt &&
-                        ` — ${_formatDuration(sr.startedAt, sr.finishedAt)}`}
+                        ` — ${formatWorkflowDuration(sr.startedAt, sr.finishedAt)}`}
                     </p>
                   )}
                 </CardHeader>
@@ -175,7 +157,7 @@ export default function WorkflowRunPage() {
                                 {tr.taskId ? tr.taskId.slice(0, 8) + "..." : "—"}
                               </TableCell>
                               <TableCell>
-                                <_StatusBadge status={tr.status} />
+                                <WorkflowStatusBadge status={tr.status} />
                               </TableCell>
                               <TableCell className="text-sm text-destructive">
                                 {tr.error || "—"}

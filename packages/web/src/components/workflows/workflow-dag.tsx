@@ -5,6 +5,7 @@ import { WorkflowDagNode } from "./workflow-dag-node";
 import { WorkflowDagEdge } from "./workflow-dag-edge";
 import { Button } from "@/components/ui/button";
 import { Plus, Minus } from "lucide-react";
+import { parseJson } from "@/lib/workflow-utils";
 
 interface WorkflowDagProps {
   steps: WorkflowStep[];
@@ -19,14 +20,6 @@ const _MIN_ZOOM = 0.3;
 const _MAX_ZOOM = 2;
 const _LEFT_GUTTER = 140;
 
-function _parseJson<T>(json: string | null, fallback: T): T {
-  if (!json) return fallback;
-  try {
-    return JSON.parse(json) as T;
-  } catch {
-    return fallback;
-  }
-}
 
 function _rootTriggerLabel(scheduleType?: string): string {
   if (scheduleType === "cron") return "cron";
@@ -81,7 +74,7 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
   }, [stepRuns]);
 
   const hasEdges = useMemo(
-    () => steps.some((s) => _parseJson<string[]>(s.dependsOn, []).length > 0),
+    () => steps.some((s) => parseJson<string[]>(s.dependsOn, []).length > 0),
     [steps]
   );
 
@@ -95,7 +88,7 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
       g.setNode(step.id, { width: _NODE_WIDTH, height: _NODE_HEIGHT });
     }
     for (const step of steps) {
-      const deps = _parseJson<string[]>(step.dependsOn, []);
+      const deps = parseJson<string[]>(step.dependsOn, []);
       for (const dep of deps) {
         g.setEdge(dep, step.id);
       }
@@ -188,7 +181,7 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
                 >
                   <WorkflowDagNode
                     label={step.label}
-                    taskNames={_parseJson<string[]>(step.taskNames, [])}
+                    taskNames={parseJson<string[]>(step.taskNames, [])}
                     status={stepRun?.status}
                   />
                 </div>
@@ -204,8 +197,8 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
   const nodes = steps.map((step) => {
     const node = layout!.node(step.id);
     const stepRun = stepRunMap.get(step.id);
-    const taskNames = _parseJson<string[]>(step.taskNames, []);
-    const deps = _parseJson<string[]>(step.dependsOn, []);
+    const taskNames = parseJson<string[]>(step.taskNames, []);
+    const deps = parseJson<string[]>(step.dependsOn, []);
     return { step, node, stepRun, taskNames, isRoot: deps.length === 0 };
   });
 
@@ -279,8 +272,6 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
                   label={step.label}
                   taskNames={taskNames}
                   status={stepRun?.status}
-                  condition={step.condition}
-                  isRoot={isRoot}
                 />
               </div>
             ))}

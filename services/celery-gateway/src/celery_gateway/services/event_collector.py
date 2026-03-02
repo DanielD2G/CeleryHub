@@ -126,6 +126,7 @@ async def _update_run_status(
     task_uuid: str, status: str, *, error: str | None = None
 ) -> None:
     """Update TaskRun status, then advance workflow."""
+    _db_ok: bool = False
     try:
         async with get_session() as session:
             values: dict[str, Any] = {"status": status}
@@ -137,12 +138,16 @@ async def _update_run_status(
                 .values(**values)
             )
             await session.commit()
+            _db_ok = True
     except Exception as exc:
         logger.warning(
             "[CeleryHub EventCollector] Failed to update TaskRun %s: %s",
             task_uuid,
             exc,
         )
+
+    if not _db_ok:
+        return
 
     try:
         from .workflow_engine import on_task_completed

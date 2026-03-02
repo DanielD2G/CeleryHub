@@ -3,30 +3,14 @@
 from __future__ import annotations
 
 import time
-import uuid
-from typing import Any
 
 import httpx
 from playwright.sync_api import Page, expect
 
+from conftest import AUTH_HEADERS, simple_workflow
+
 _BASE_URL = "http://localhost:3099"
-_AUTH_HEADERS = {"Authorization": "Bearer test-token-123"}
 _EXPECT_TIMEOUT = 15_000
-
-
-def _simple_workflow(name: str) -> dict[str, Any]:
-    """Return a minimal workflow payload."""
-    return {
-        "name": name,
-        "steps": [
-            {
-                "id": f"step-{uuid.uuid4().hex[:8]}",
-                "label": "Step A",
-                "taskNames": ["integration.add"],
-                "args": "[1, 2]",
-            }
-        ],
-    }
 
 
 # ===================================================================
@@ -55,12 +39,14 @@ class TestPagesRender:
 
     def test_queues_page_renders(self, page: Page) -> None:
         page.goto("/queues")
-        expect(page.locator("body")).to_be_visible(timeout=_EXPECT_TIMEOUT)
+        expect(page.locator("body")).to_contain_text(
+            "celery", timeout=_EXPECT_TIMEOUT
+        )
 
     def test_history_page_shows_tasks(self, page: Page) -> None:
         # Send a task via API so there's something in history
         with httpx.Client(
-            base_url=_BASE_URL, headers=_AUTH_HEADERS, timeout=10
+            base_url=_BASE_URL, headers=AUTH_HEADERS, timeout=10
         ) as client:
             client.post(
                 "/api/tasks/send",
@@ -76,7 +62,9 @@ class TestPagesRender:
 
     def test_send_page_renders(self, page: Page) -> None:
         page.goto("/send")
-        expect(page.locator("body")).to_be_visible(timeout=_EXPECT_TIMEOUT)
+        expect(page.locator("body")).to_contain_text(
+            "Send", timeout=_EXPECT_TIMEOUT
+        )
 
 
 # ===================================================================
@@ -87,11 +75,11 @@ class TestPagesRender:
 class TestWorkflowFrontend:
     def test_workflows_list_page(self, page: Page) -> None:
         with httpx.Client(
-            base_url=_BASE_URL, headers=_AUTH_HEADERS, timeout=10
+            base_url=_BASE_URL, headers=AUTH_HEADERS, timeout=10
         ) as client:
             client.post(
                 "/api/workflows",
-                json=_simple_workflow("fe-list-test"),
+                json=simple_workflow("fe-list-test"),
             )
 
         page.goto("/workflows")
@@ -101,11 +89,11 @@ class TestWorkflowFrontend:
 
     def test_workflow_detail_page(self, page: Page) -> None:
         with httpx.Client(
-            base_url=_BASE_URL, headers=_AUTH_HEADERS, timeout=10
+            base_url=_BASE_URL, headers=AUTH_HEADERS, timeout=10
         ) as client:
             resp = client.post(
                 "/api/workflows",
-                json=_simple_workflow("fe-detail-test"),
+                json=simple_workflow("fe-detail-test"),
             )
             wf_id: str = resp.json()["id"]
 
@@ -116,11 +104,11 @@ class TestWorkflowFrontend:
 
     def test_workflow_run_detail_page(self, page: Page) -> None:
         with httpx.Client(
-            base_url=_BASE_URL, headers=_AUTH_HEADERS, timeout=10
+            base_url=_BASE_URL, headers=AUTH_HEADERS, timeout=10
         ) as client:
             create_resp = client.post(
                 "/api/workflows",
-                json=_simple_workflow("fe-run-test"),
+                json=simple_workflow("fe-run-test"),
             )
             wf_id: str = create_resp.json()["id"]
 
