@@ -1,0 +1,12 @@
+{
+  "name": "celeryhub",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/web"
+  ],
+  "scripts": {
+    "dev": "cd packages/web && npx vite",
+    "build": "cd packages/web && npx vite build"
+  }
+}
