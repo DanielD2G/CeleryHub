@@ -7,7 +7,7 @@ import {
   Send,
   Play,
   History,
-  Timer,
+  GitBranch,
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
@@ -43,7 +43,9 @@ const navSections = [
   },
   {
     label: "Scheduling",
-    items: [{ href: "/beats", label: "Beats", icon: Timer }],
+    items: [
+      { href: "/workflows", label: "Workflows", icon: GitBranch },
+    ],
   },
   {
     label: "Infrastructure",

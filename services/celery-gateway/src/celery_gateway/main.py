@@ -15,10 +15,10 @@ from . import VERSION
 from .celery_app import app as celery_app
 from .config import settings
 from .db import close_db, init_db
-from .routers import beats, control, events, queues, tasks, workers
+from .routers import control, events, queues, tasks, workflows, workers
 from .services.cache import CeleryCache
 from .services.event_collector import start_event_collector, stop_event_collector
-from .services.beat_scheduler import start_scheduler, stop_scheduler
+from .services.scheduler import start_scheduler, stop_scheduler
 from .services.inspect_cache import InspectCache
 from .services.redis_client import close_redis
 
@@ -67,7 +67,7 @@ app.add_middleware(
 app.include_router(tasks.router, prefix="/api")
 app.include_router(workers.router, prefix="/api")
 app.include_router(control.router, prefix="/api")
-app.include_router(beats.router, prefix="/api")
+app.include_router(workflows.router, prefix="/api")
 app.include_router(queues.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
 

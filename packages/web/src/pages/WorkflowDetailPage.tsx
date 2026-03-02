@@ -1,36 +1,36 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { BeatDetailClient } from "@/components/beats/beat-detail-client";
+import { WorkflowDetailClient } from "@/components/workflows/workflow-detail-client";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { apiGet } from "@/lib/api";
-import type { BeatSchedule, BeatRun } from "@/lib/types";
+import type { Workflow, WorkflowRun } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export default function BeatDetailPage() {
+export default function WorkflowDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [beat, setBeat] = useState<BeatSchedule | null>(null);
-  useDocumentTitle(beat?.name ?? "Beat Detail");
-  const [runs, setRuns] = useState<BeatRun[]>([]);
+  const [workflow, setWorkflow] = useState<Workflow | null>(null);
+  useDocumentTitle(workflow?.name ?? "Workflow Detail");
+  const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(() => {
     if (!id) return;
 
     Promise.all([
-      apiGet<BeatSchedule>(`/api/beats/${id}`).catch(() => null),
-      apiGet<BeatRun[]>(`/api/beats/${id}/runs`).catch(() => []),
+      apiGet<Workflow>(`/api/workflows/${id}`).catch(() => null),
+      apiGet<WorkflowRun[]>(`/api/workflows/${id}/runs`).catch(() => []),
     ])
-      .then(([beatData, runsData]) => {
-        if (!beatData) {
-          navigate("/beats", { replace: true });
+      .then(([workflowData, runsData]) => {
+        if (!workflowData) {
+          navigate("/workflows", { replace: true });
           return;
         }
-        setBeat(beatData);
+        setWorkflow(workflowData);
         setRuns(runsData);
       })
       .catch(() => {
-        navigate("/beats", { replace: true });
+        navigate("/workflows", { replace: true });
       })
       .finally(() => setLoading(false));
   }, [id, navigate]);
@@ -50,7 +50,7 @@ export default function BeatDetailPage() {
     );
   }
 
-  if (!beat) return null;
+  if (!workflow) return null;
 
-  return <BeatDetailClient beat={beat} runs={runs} onRefresh={fetchData} />;
+  return <WorkflowDetailClient workflow={workflow} runs={runs} onRefresh={fetchData} />;
 }

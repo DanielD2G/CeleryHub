@@ -9,7 +9,7 @@ from sqlalchemy import update
 
 from ..config import settings
 from ..db import get_session
-from ..db.models import BeatRun
+from ..db.models import TaskRun
 from .kombu_parser import parse_kombu_message
 from .redis_client import create_subscriber, get_db_number, get_redis
 
@@ -105,16 +105,7 @@ async def _persist_event(event: dict[str, Any]) -> None:
             fields["worker"] = hostname
         await redis.hset(meta_key, mapping=fields)
         await redis.srem(_ACTIVE_SET_KEY, uuid)
-        try:
-            async with get_session() as session:
-                await session.execute(
-                    update(BeatRun)
-                    .where(BeatRun.task_id == uuid)
-                    .values(status="SUCCESS")
-                )
-                await session.commit()
-        except Exception:
-            pass
+        await _update_run_status(uuid, "SUCCESS")
 
     if event_type == "task-failed":
         meta_key = f"{_TASK_META_KEY}:{uuid}"
@@ -125,19 +116,39 @@ async def _persist_event(event: dict[str, Any]) -> None:
             fields["worker"] = hostname
         await redis.hset(meta_key, mapping=fields)
         await redis.srem(_ACTIVE_SET_KEY, uuid)
-        try:
-            async with get_session() as session:
-                await session.execute(
-                    update(BeatRun)
-                    .where(BeatRun.task_id == uuid)
-                    .values(status="FAILURE", error=event.get("exception"))
-                )
-                await session.commit()
-        except Exception:
-            pass
+        await _update_run_status(uuid, "FAILURE", error=event.get("exception"))
 
     if event_type == "task-revoked":
         await redis.srem(_ACTIVE_SET_KEY, uuid)
+
+
+async def _update_run_status(
+    task_uuid: str, status: str, *, error: str | None = None
+) -> None:
+    """Update TaskRun status, then advance workflow."""
+    try:
+        async with get_session() as session:
+            values: dict[str, Any] = {"status": status}
+            if error is not None:
+                values["error"] = error
+            await session.execute(
+                update(TaskRun)
+                .where(TaskRun.task_id == task_uuid)
+                .values(**values)
+            )
+            await session.commit()
+    except Exception:
+        pass
+
+    try:
+        from .workflow_engine import on_task_completed
+
+        await on_task_completed(task_uuid, status, error=error)
+    except Exception:
+        logger.debug(
+            "[CeleryHub EventCollector] Workflow engine error for %s",
+            task_uuid,
+        )
 
 
 _BACKOFF_BASE: float = 1.0
