@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useCelery, useCeleryTasks } from "@/hooks/use-celery";
 import { timeAgo } from "@/lib/task-utils";
 import { Badge } from "@/components/ui/badge";
@@ -22,62 +23,63 @@ export function TaskCards() {
   const { completedTasks, knownTaskNames } = useCelery();
   const activeTasks = useCeleryTasks();
 
-  // Count active tasks per name
-  const activeByName = new Map<string, number>();
-  for (const task of activeTasks.values()) {
-    if (task.name && task.name !== "unknown") {
-      activeByName.set(task.name, (activeByName.get(task.name) ?? 0) + 1);
+  const groups = useMemo(() => {
+    // Count active tasks per name
+    const activeByName = new Map<string, number>();
+    for (const task of activeTasks.values()) {
+      if (task.name && task.name !== "unknown") {
+        activeByName.set(task.name, (activeByName.get(task.name) ?? 0) + 1);
+      }
     }
-  }
 
-  // Build groups
-  const map = new Map<
-    string,
-    { count: number; lastRun: number; failureCount: number }
-  >();
+    // Build groups
+    const map = new Map<
+      string,
+      { count: number; lastRun: number; failureCount: number }
+    >();
 
-  for (const task of completedTasks.values()) {
-    const name = task.name || "unknown";
-    if (name === "unknown") continue;
-    const existing = map.get(name);
-    if (existing) {
-      existing.count++;
-      existing.lastRun = Math.max(existing.lastRun, task.completedAt);
-      if (task.status === "FAILURE") existing.failureCount++;
-    } else {
-      map.set(name, {
-        count: 1,
-        lastRun: task.completedAt,
-        failureCount: task.status === "FAILURE" ? 1 : 0,
+    for (const task of completedTasks.values()) {
+      const name = task.name || "unknown";
+      if (name === "unknown") continue;
+      const existing = map.get(name);
+      if (existing) {
+        existing.count++;
+        existing.lastRun = Math.max(existing.lastRun, task.completedAt);
+        if (task.status === "FAILURE") existing.failureCount++;
+      } else {
+        map.set(name, {
+          count: 1,
+          lastRun: task.completedAt,
+          failureCount: task.status === "FAILURE" ? 1 : 0,
+        });
+      }
+    }
+
+    for (const name of knownTaskNames) {
+      if (!map.has(name) && name !== "unknown") {
+        map.set(name, { count: 0, lastRun: 0, failureCount: 0 });
+      }
+    }
+
+    // Also add names that only appear in active (not yet completed)
+    for (const name of activeByName.keys()) {
+      if (!map.has(name)) {
+        map.set(name, { count: 0, lastRun: 0, failureCount: 0 });
+      }
+    }
+
+    return Array.from(map.entries())
+      .map(([name, data]): TaskGroup => ({
+        name,
+        ...data,
+        activeCount: activeByName.get(name) ?? 0,
+      }))
+      .sort((a, b) => {
+        if (a.activeCount > 0 && b.activeCount === 0) return -1;
+        if (b.activeCount > 0 && a.activeCount === 0) return 1;
+        return b.lastRun - a.lastRun;
       });
-    }
-  }
-
-  for (const name of knownTaskNames) {
-    if (!map.has(name) && name !== "unknown") {
-      map.set(name, { count: 0, lastRun: 0, failureCount: 0 });
-    }
-  }
-
-  // Also add names that only appear in active (not yet completed)
-  for (const name of activeByName.keys()) {
-    if (!map.has(name)) {
-      map.set(name, { count: 0, lastRun: 0, failureCount: 0 });
-    }
-  }
-
-  const groups: TaskGroup[] = Array.from(map.entries())
-    .map(([name, data]) => ({
-      name,
-      ...data,
-      activeCount: activeByName.get(name) ?? 0,
-    }))
-    .sort((a, b) => {
-      // Active first, then by lastRun
-      if (a.activeCount > 0 && b.activeCount === 0) return -1;
-      if (b.activeCount > 0 && a.activeCount === 0) return 1;
-      return b.lastRun - a.lastRun;
-    });
+  }, [completedTasks, knownTaskNames, activeTasks]);
 
   if (groups.length === 0) {
     return (

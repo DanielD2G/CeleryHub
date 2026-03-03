@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     inspect_cache_ttl: float = 3.0
     cors_origins: list[str] = []
     celeryhub_db_path: str = "./data/celeryhub.db"
-    celeryhub_task_ttl: int = 0
+    celeryhub_task_ttl: int = 604800
     celeryhub_auth_token: str = ""
     static_dir: str | None = None
     port: int = 3000

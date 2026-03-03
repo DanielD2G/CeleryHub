@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { WorkflowSummary } from "@/lib/types";
 import {
@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { formatSchedule } from "@/lib/scheduler/cron";
 import { apiPost } from "@/lib/api";
+import { useTick } from "@/hooks/use-tick";
 
 function _computeRelativeLabel(iso: string): string {
   const d = new Date(iso);
@@ -32,25 +33,13 @@ function _computeRelativeLabel(iso: string): string {
 }
 
 function _RelativeTime({ iso, warnIfPast }: { iso: string | null; warnIfPast?: boolean }) {
-  const [label, setLabel] = useState(() =>
-    iso ? _computeRelativeLabel(iso) : "—"
-  );
-  const [isPast, setIsPast] = useState(() =>
-    iso ? new Date(iso).getTime() < Date.now() : false
-  );
-
-  useEffect(() => {
-    if (!iso) return;
-    const update = () => {
-      setLabel(_computeRelativeLabel(iso));
-      setIsPast(new Date(iso).getTime() < Date.now());
-    };
-    update();
-    const id = setInterval(update, 5000);
-    return () => clearInterval(id);
-  }, [iso]);
+  useTick(); // shared 1s timer — no per-row setInterval
 
   if (!iso) return <span className="text-muted-foreground">—</span>;
+
+  const label = _computeRelativeLabel(iso);
+  const isPast = new Date(iso).getTime() < Date.now();
+
   return (
     <span
       title={new Date(iso).toISOString()}
