@@ -178,23 +178,41 @@ function _formatRuntime(value: number): string {
 }
 
 export function TaskGroupKpis({ history }: { history: CompletedTaskMeta[] }) {
-  const successCount = history.filter((t) => t.status === "SUCCESS").length;
-  const { avgRuntime } = computeTaskGroupStats(history);
+  const { successCount, runtimes, avgRuntime, p95Runtime, successRate } = useMemo(() => {
+    let _successCount = 0;
+    const _runtimes: number[] = [];
+    let _runtimeSum = 0;
 
-  const runtimes = history
-    .filter((t) => t.status === "SUCCESS" && t.runtime != null)
-    .map((t) => t.runtime!);
+    for (const t of history) {
+      if (t.status === "SUCCESS") {
+        _successCount++;
+        if (t.runtime != null) {
+          _runtimes.push(t.runtime);
+          _runtimeSum += t.runtime;
+        }
+      }
+    }
 
-  const successRate = history.length > 0
-    ? ((successCount / history.length) * 100).toFixed(1)
-    : "—";
+    const _avgRuntime = _runtimes.length > 0 ? _runtimeSum / _runtimes.length : null;
 
-  const p95Runtime = runtimes.length > 0
-    ? (() => {
-        const sorted = [...runtimes].sort((a, b) => a - b);
-        return sorted[Math.floor(sorted.length * 0.95)] || sorted[sorted.length - 1];
-      })()
-    : null;
+    let _p95Runtime: number | null = null;
+    if (_runtimes.length > 0) {
+      _runtimes.sort((a, b) => a - b);
+      _p95Runtime = _runtimes[Math.floor(_runtimes.length * 0.95)] || _runtimes[_runtimes.length - 1];
+    }
+
+    const _successRate = history.length > 0
+      ? ((_successCount / history.length) * 100).toFixed(1)
+      : "—";
+
+    return {
+      successCount: _successCount,
+      runtimes: _runtimes,
+      avgRuntime: _avgRuntime,
+      p95Runtime: _p95Runtime,
+      successRate: _successRate,
+    };
+  }, [history]);
 
   const throughputSparkline = useMemo(() => _buildThroughputSparkline(history), [history]);
   const runtimeSparkline = useMemo(() => _buildRuntimeSparkline(history), [history]);
