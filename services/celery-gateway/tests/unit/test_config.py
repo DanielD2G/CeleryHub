@@ -14,7 +14,7 @@ class TestSettings:
         assert s.celery_result_backend is None
         assert s.inspect_timeout == 5.0
         assert s.inspect_cache_ttl == 3.0
-        assert s.celeryhub_task_ttl == 0
+        assert s.celeryhub_task_ttl == 604800
         assert s.static_dir is None
 
     def test_result_backend_without_override(self) -> None:

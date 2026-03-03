@@ -43,22 +43,18 @@ def on_celery_event(fn: EventListener) -> Callable[[], None]:
     return _unsubscribe
 
 
-async def _expire_if_needed(key: str) -> None:
+def _pipe_expire(pipe: Any, key: str) -> None:
     ttl = _get_task_ttl()
     if ttl > 0:
-        redis = get_redis()
-        try:
-            await redis.expire(key, ttl)
-        except Exception:
-            pass
+        pipe.expire(key, ttl)
 
 
-async def _index_completed(
-    redis: Any, task_id: str, timestamp: float | int
+def _pipe_index_completed(
+    pipe: Any, task_id: str, timestamp: float | int
 ) -> None:
     score = float(timestamp) if timestamp else time.time()
-    await redis.zadd(_COMPLETED_ZSET_KEY, {task_id: score})
-    await redis.zremrangebyrank(_COMPLETED_ZSET_KEY, 0, -(_COMPLETED_MAX_SIZE + 1))
+    pipe.zadd(_COMPLETED_ZSET_KEY, {task_id: score})
+    pipe.zremrangebyrank(_COMPLETED_ZSET_KEY, 0, -(_COMPLETED_MAX_SIZE + 1))
 
 
 async def _persist_event(event: dict[str, Any]) -> None:
@@ -81,19 +77,23 @@ async def _persist_event(event: dict[str, Any]) -> None:
             mapping["args"] = str(event["args"])
         if event.get("kwargs") is not None:
             mapping["kwargs"] = str(event["kwargs"])
-        await redis.hset(meta_key, mapping=mapping)
-        await _expire_if_needed(meta_key)
-        await redis.sadd(_KNOWN_TASKS_KEY, event["name"])
-        await redis.sadd(_ACTIVE_SET_KEY, uuid)
+        pipe = redis.pipeline()
+        pipe.hset(meta_key, mapping=mapping)
+        _pipe_expire(pipe, meta_key)
+        pipe.sadd(_KNOWN_TASKS_KEY, event["name"])
+        pipe.sadd(_ACTIVE_SET_KEY, uuid)
+        await pipe.execute()
 
     if event_type == "task-started":
         meta_key = f"{_TASK_META_KEY}:{uuid}"
-        await redis.hset(meta_key, mapping={
+        pipe = redis.pipeline()
+        pipe.hset(meta_key, mapping={
             "status": "STARTED",
             "worker": hostname,
             "started_at": str(event.get("timestamp", "")),
         })
-        await redis.sadd(_ACTIVE_SET_KEY, uuid)
+        pipe.sadd(_ACTIVE_SET_KEY, uuid)
+        await pipe.execute()
 
     if event_type == "task-sent" and event.get("name"):
         payload = json.dumps({
@@ -103,9 +103,11 @@ async def _persist_event(event: dict[str, Any]) -> None:
             "timestamp": event.get("timestamp"),
         })
         payload_key = f"{_PAYLOADS_KEY}:{event['name']}"
-        await redis.lpush(payload_key, payload)
-        await redis.ltrim(payload_key, 0, 9)
-        await _expire_if_needed(payload_key)
+        pipe = redis.pipeline()
+        pipe.lpush(payload_key, payload)
+        pipe.ltrim(payload_key, 0, 9)
+        _pipe_expire(pipe, payload_key)
+        await pipe.execute()
 
     if event_type == "task-succeeded":
         meta_key = f"{_TASK_META_KEY}:{uuid}"
@@ -120,10 +122,12 @@ async def _persist_event(event: dict[str, Any]) -> None:
             fields["result"] = str(event["result"])
         if hostname:
             fields["worker"] = hostname
-        await redis.hset(meta_key, mapping=fields)
-        await _expire_if_needed(meta_key)
-        await redis.srem(_ACTIVE_SET_KEY, uuid)
-        await _index_completed(redis, uuid, timestamp)
+        pipe = redis.pipeline()
+        pipe.hset(meta_key, mapping=fields)
+        _pipe_expire(pipe, meta_key)
+        pipe.srem(_ACTIVE_SET_KEY, uuid)
+        _pipe_index_completed(pipe, uuid, timestamp)
+        await pipe.execute()
         await _update_run_status(uuid, "SUCCESS")
 
     if event_type == "task-failed":
@@ -139,22 +143,26 @@ async def _persist_event(event: dict[str, Any]) -> None:
             fields["traceback"] = event["traceback"]
         if hostname:
             fields["worker"] = hostname
-        await redis.hset(meta_key, mapping=fields)
-        await _expire_if_needed(meta_key)
-        await redis.srem(_ACTIVE_SET_KEY, uuid)
-        await _index_completed(redis, uuid, timestamp)
+        pipe = redis.pipeline()
+        pipe.hset(meta_key, mapping=fields)
+        _pipe_expire(pipe, meta_key)
+        pipe.srem(_ACTIVE_SET_KEY, uuid)
+        _pipe_index_completed(pipe, uuid, timestamp)
+        await pipe.execute()
         await _update_run_status(uuid, "FAILURE", error=event.get("exception"))
 
     if event_type == "task-revoked":
         timestamp = event.get("timestamp") or 0
         meta_key = f"{_TASK_META_KEY}:{uuid}"
-        await redis.hset(meta_key, mapping={
+        pipe = redis.pipeline()
+        pipe.hset(meta_key, mapping={
             "status": "REVOKED",
             "completed_at": str(timestamp),
         })
-        await _expire_if_needed(meta_key)
-        await redis.srem(_ACTIVE_SET_KEY, uuid)
-        await _index_completed(redis, uuid, timestamp)
+        _pipe_expire(pipe, meta_key)
+        pipe.srem(_ACTIVE_SET_KEY, uuid)
+        _pipe_index_completed(pipe, uuid, timestamp)
+        await pipe.execute()
 
 
 async def _update_run_status(
