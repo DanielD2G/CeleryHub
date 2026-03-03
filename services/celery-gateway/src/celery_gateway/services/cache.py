@@ -113,12 +113,21 @@ class CeleryCache:
 
     async def _refresh_active_tasks(self) -> list[dict[str, Any]]:
         try:
-            data = await self._inspect_cache.get("active")
+            active_data, reserved_data = await asyncio.gather(
+                self._inspect_cache.get("active"),
+                self._inspect_cache.get("reserved"),
+            )
             tasks: list[dict[str, Any]] = []
-            for worker_name, task_list in data.items():
+            seen_ids: set[str] = set()
+
+            # Active tasks (currently executing)
+            for worker_name, task_list in active_data.items():
                 for t in task_list:
+                    task_id = t.get("id", "")
+                    if task_id:
+                        seen_ids.add(task_id)
                     tasks.append({
-                        "taskId": t.get("id", ""),
+                        "taskId": task_id,
                         "name": t.get("name", "unknown"),
                         "worker": worker_name,
                         "startedAt": t.get("time_start") or time.time(),
@@ -126,6 +135,24 @@ class CeleryCache:
                         "args": str(t.get("args")) if t.get("args") is not None else None,
                         "kwargs": str(t.get("kwargs")) if t.get("kwargs") is not None else None,
                     })
+
+            # Reserved tasks (received by worker, waiting to execute)
+            for worker_name, task_list in reserved_data.items():
+                for t in task_list:
+                    task_id = t.get("id", "")
+                    if task_id in seen_ids:
+                        continue
+                    seen_ids.add(task_id)
+                    tasks.append({
+                        "taskId": task_id,
+                        "name": t.get("name", "unknown"),
+                        "worker": worker_name,
+                        "startedAt": t.get("time_start") or time.time(),
+                        "status": "received",
+                        "args": str(t.get("args")) if t.get("args") is not None else None,
+                        "kwargs": str(t.get("kwargs")) if t.get("kwargs") is not None else None,
+                    })
+
             return tasks
         except Exception:
             try:
@@ -221,7 +248,7 @@ class CeleryCache:
         from .celery_redis import get_pending_tasks
 
         results = await asyncio.gather(
-            *[get_pending_tasks(q, 20) for q in queue_names],
+            *[get_pending_tasks(q, 200) for q in queue_names],
             return_exceptions=True,
         )
 

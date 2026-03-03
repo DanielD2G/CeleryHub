@@ -70,32 +70,7 @@ async def send_celery_task(
     return task_id
 
 
-class _TaskResult:
-    __slots__ = (
-        "task_id", "status", "result", "traceback",
-        "date_done", "name", "worker", "runtime",
-    )
-
-    def __init__(
-        self,
-        *,
-        task_id: str,
-        status: str,
-        result: Any = None,
-        traceback: str | None = None,
-        date_done: str = "",
-        name: str | None = None,
-        worker: str | None = None,
-        runtime: float | None = None,
-    ) -> None:
-        self.task_id = task_id
-        self.status = status
-        self.result = result
-        self.traceback = traceback
-        self.date_done = date_done
-        self.name = name
-        self.worker = worker
-        self.runtime = runtime
+_COMPLETED_ZSET_KEY = "celeryhub:completed"
 
 
 async def get_celery_task_status(task_id: str) -> dict[str, Any] | None:
@@ -118,51 +93,6 @@ async def get_celery_task_status(task_id: str) -> dict[str, Any] | None:
         }
     except Exception:
         return None
-
-
-async def get_recent_results(limit: int = 50) -> list[_TaskResult]:
-    redis = get_redis()
-    results: list[_TaskResult] = []
-    cursor: int | bytes = 0
-
-    while True:
-        cursor, keys = await redis.scan(
-            cursor=cursor, match="celery-task-meta-*", count=100
-        )
-
-        if keys:
-            pipe = redis.pipeline()
-            for key in keys:
-                pipe.get(key)
-            values = await pipe.execute()
-
-            for val in values:
-                if not val:
-                    continue
-                try:
-                    data = json.loads(val)
-                    results.append(
-                        _TaskResult(
-                            task_id=data.get("task_id", ""),
-                            status=data.get("status", "UNKNOWN"),
-                            result=data.get("result"),
-                            traceback=data.get("traceback"),
-                            date_done=data.get("date_done", ""),
-                            name=data.get("name"),
-                            worker=data.get("worker"),
-                            runtime=data.get("runtime"),
-                        )
-                    )
-                except Exception:
-                    continue
-
-        if len(results) >= limit * 2:
-            break
-        if cursor == 0:
-            break
-
-    results.sort(key=lambda r: r.date_done or "", reverse=True)
-    return results[:limit]
 
 
 async def get_active_tasks() -> list[dict[str, Any]]:
@@ -211,52 +141,48 @@ async def get_active_tasks() -> list[dict[str, Any]]:
 
 async def get_historical_tasks(limit: int = 50) -> list[dict[str, Any]]:
     redis = get_redis()
-    results = await get_recent_results(limit)
 
-    terminal = [r for r in results if r.status in _TERMINAL_STATES]
-    if not terminal:
+    task_ids: list[str] = await redis.zrevrange(
+        _COMPLETED_ZSET_KEY, 0, limit - 1,
+    )
+    if not task_ids:
         return []
 
     pipe = redis.pipeline()
-    for r in terminal:
-        pipe.hgetall(f"celeryhub:tasks:{r.task_id}")
-    meta_values = await pipe.execute()
+    for tid in task_ids:
+        pipe.hgetall(f"celeryhub:tasks:{tid}")
+    meta_values: list[dict[str, str]] = await pipe.execute()
 
     tasks: list[dict[str, Any]] = []
-    for i, r in enumerate(terminal):
-        meta: dict[str, str] = meta_values[i] if meta_values[i] else {}
+    for i, tid in enumerate(task_ids):
+        meta = meta_values[i] if meta_values[i] else {}
+        if not meta or meta.get("status") not in _TERMINAL_STATES:
+            continue
 
-        runtime = r.runtime
-        if runtime is None and meta.get("runtime"):
+        runtime: float | None = None
+        if meta.get("runtime"):
             try:
                 runtime = float(meta["runtime"])
             except (ValueError, TypeError):
                 pass
 
-        result_str: str | None = None
-        if r.result is not None:
-            result_str = str(r.result)
-
         completed_at: float
-        if r.date_done:
+        if meta.get("completed_at"):
             try:
-                from datetime import datetime, timezone
-
-                dt = datetime.fromisoformat(r.date_done.replace("Z", "+00:00"))
-                completed_at = dt.timestamp()
-            except Exception:
+                completed_at = float(meta["completed_at"])
+            except (ValueError, TypeError):
                 completed_at = time.time()
         else:
             completed_at = time.time()
 
         tasks.append({
-            "taskId": r.task_id,
-            "name": r.name or meta.get("name", "unknown"),
-            "worker": r.worker or meta.get("worker", ""),
-            "status": r.status,
+            "taskId": tid,
+            "name": meta.get("name", "unknown"),
+            "worker": meta.get("worker", ""),
+            "status": meta["status"],
             "runtime": runtime,
-            "result": result_str,
-            "traceback": r.traceback or None,
+            "result": meta.get("result"),
+            "traceback": meta.get("traceback"),
             "args": meta.get("args"),
             "kwargs": meta.get("kwargs"),
             "completedAt": completed_at,
@@ -307,7 +233,7 @@ async def get_task_payloads(
 
 
 async def get_pending_tasks(
-    queue: str = "celery", limit: int = 20
+    queue: str = "celery", limit: int = 200
 ) -> list[dict[str, str]]:
     redis = get_redis()
     raw_items = await redis.lrange(queue, 0, limit - 1)
