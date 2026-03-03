@@ -468,7 +468,7 @@ export function EventProvider({ children }: { children: ReactNode }) {
     };
 
     pollActive(); // immediate first fetch
-    const interval = hasActiveTasks ? 2000 : 10000;
+    const interval = hasActiveTasks ? 2000 : 4000;
     const id = setInterval(pollActive, interval);
     return () => {
       cancelled = true;

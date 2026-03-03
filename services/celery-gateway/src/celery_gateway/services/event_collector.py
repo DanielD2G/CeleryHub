@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any, Callable
 
 from sqlalchemy import update
@@ -17,8 +18,10 @@ logger = logging.getLogger(__name__)
 
 _TASK_META_KEY = "celeryhub:tasks"
 _ACTIVE_SET_KEY = "celeryhub:active-tasks"
+_COMPLETED_ZSET_KEY = "celeryhub:completed"
 _PAYLOADS_KEY = "celeryhub:payloads"
 _KNOWN_TASKS_KEY = "celeryhub:known-tasks"
+_COMPLETED_MAX_SIZE = 2000
 
 EventListener = Callable[[dict[str, Any]], None]
 
@@ -48,6 +51,14 @@ async def _expire_if_needed(key: str) -> None:
             await redis.expire(key, ttl)
         except Exception:
             pass
+
+
+async def _index_completed(
+    redis: Any, task_id: str, timestamp: float | int
+) -> None:
+    score = float(timestamp) if timestamp else time.time()
+    await redis.zadd(_COMPLETED_ZSET_KEY, {task_id: score})
+    await redis.zremrangebyrank(_COMPLETED_ZSET_KEY, 0, -(_COMPLETED_MAX_SIZE + 1))
 
 
 async def _persist_event(event: dict[str, Any]) -> None:
@@ -98,28 +109,52 @@ async def _persist_event(event: dict[str, Any]) -> None:
 
     if event_type == "task-succeeded":
         meta_key = f"{_TASK_META_KEY}:{uuid}"
-        fields: dict[str, str] = {"status": "SUCCESS"}
+        timestamp = event.get("timestamp") or 0
+        fields: dict[str, str] = {
+            "status": "SUCCESS",
+            "completed_at": str(timestamp),
+        }
         if event.get("runtime") is not None:
             fields["runtime"] = str(event["runtime"])
+        if event.get("result") is not None:
+            fields["result"] = str(event["result"])
         if hostname:
             fields["worker"] = hostname
         await redis.hset(meta_key, mapping=fields)
+        await _expire_if_needed(meta_key)
         await redis.srem(_ACTIVE_SET_KEY, uuid)
+        await _index_completed(redis, uuid, timestamp)
         await _update_run_status(uuid, "SUCCESS")
 
     if event_type == "task-failed":
         meta_key = f"{_TASK_META_KEY}:{uuid}"
-        fields = {"status": "FAILURE"}
+        timestamp = event.get("timestamp") or 0
+        fields = {
+            "status": "FAILURE",
+            "completed_at": str(timestamp),
+        }
         if event.get("exception"):
             fields["exception"] = event["exception"]
+        if event.get("traceback"):
+            fields["traceback"] = event["traceback"]
         if hostname:
             fields["worker"] = hostname
         await redis.hset(meta_key, mapping=fields)
+        await _expire_if_needed(meta_key)
         await redis.srem(_ACTIVE_SET_KEY, uuid)
+        await _index_completed(redis, uuid, timestamp)
         await _update_run_status(uuid, "FAILURE", error=event.get("exception"))
 
     if event_type == "task-revoked":
+        timestamp = event.get("timestamp") or 0
+        meta_key = f"{_TASK_META_KEY}:{uuid}"
+        await redis.hset(meta_key, mapping={
+            "status": "REVOKED",
+            "completed_at": str(timestamp),
+        })
+        await _expire_if_needed(meta_key)
         await redis.srem(_ACTIVE_SET_KEY, uuid)
+        await _index_completed(redis, uuid, timestamp)
 
 
 async def _update_run_status(
