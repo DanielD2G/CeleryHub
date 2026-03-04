@@ -16,20 +16,31 @@ CeleryHub gives you a modern web dashboard to observe your Celery workers, inspe
 
 - **Live dashboard** — KPIs, throughput charts, task status breakdown, worker load, and event timeline updated in real time via SSE
 - **Task management** — Browse registered tasks, view active/completed executions, retry, revoke, and inspect results or tracebacks
+- **Active tasks** — Dedicated view for currently running tasks across all workers
 - **Send tasks** — Dispatch any task to any queue with custom args/kwargs from the UI
 - **Workers & queues** — Monitor connected workers, pool stats, uptime, and queue depth
+- **Worker control** — Pool grow/shrink, rate limiting, and queue management (add/cancel consumers, shutdown, purge)
 - **Workflows** — Orchestrate multi-step DAG pipelines with dependencies, conditions (`all_succeeded`, `any_failed`, `all_completed`), cron/interval scheduling, and visual DAG editor
 - **History** — Search and filter completed tasks with results and exceptions
 
 ### Screenshots
 
+<table>
+  <tr>
+    <td colspan="3" align="center">
+      <img alt="Workflow Detail" src="docs/screenshots/workflow-detail-dark.png" width="100%">
+      <br><em>Workflow Detail (DAG)</em>
+    </td>
+  </tr>
+</table>
+
 | Workers | Tasks | History |
 |---------|-------|---------|
 | ![Workers](docs/screenshots/workers-dark.png) | ![Tasks](docs/screenshots/tasks-dark.png) | ![History](docs/screenshots/history-dark.png) |
 
-| Workflows | Workflow Detail (DAG) | Workflow Run |
-|-----------|----------------------|--------------|
-| ![Workflows](docs/screenshots/workflows-dark.png) | ![Workflow Detail](docs/screenshots/workflow-detail-dark.png) | ![Workflow Run](docs/screenshots/workflow-run-dark.png) |
+| Workflows | Workflow Run | Queues |
+|-----------|-------------|--------|
+| ![Workflows](docs/screenshots/workflows-dark.png) | ![Workflow Run](docs/screenshots/workflow-run-dark.png) | ![Queues](docs/screenshots/queues-dark.png) |
 
 | Send Task |
 |-----------|
@@ -46,16 +57,18 @@ CeleryHub gives you a modern web dashboard to observe your Celery workers, inspe
 
 ## Architecture
 
+CeleryHub runs as a **single service** — FastAPI serves the REST API, SSE event stream, and the React SPA (static files) on one port.
+
 ```
 ┌─────────────────────────────────────────────────┐
 │                    Browser                      │
 │              React SPA (Vite)                   │
 └────────────────────┬────────────────────────────┘
-                     │ HTTP + SSE
+                     │ HTTP + SSE (port 3000)
 ┌────────────────────▼────────────────────────────┐
 │           FastAPI Server (Python)                │
-│   REST API · SSE stream · Beat scheduler         │
-│   SQLite (SQLAlchemy) · Redis pub/sub · Celery   │
+│   REST API · SSE stream · Workflow scheduler     │
+│   Static SPA · SQLite · Redis pub/sub · Celery   │
 └────────────────────┬────────────────────────────┘
                      │
               ┌──────▼──────┐
@@ -104,7 +117,13 @@ docker run \
 
 CeleryHub uses SQLite by default (persisted at `/app/data/celeryhub.db`).
 
-The Docker image bundles the FastAPI backend and React app into a single container, serving on port 3000.
+The Docker image bundles the FastAPI backend and React app into a single container, serving everything on port **3000**.
+
+Pre-built images are available on GHCR:
+
+```bash
+docker pull ghcr.io/danield2g/celeryhub:latest
+```
 
 ### Development
 
@@ -138,11 +157,12 @@ See [`.env.example`](.env.example) for all available variables.
 | `CELERY_BROKER_URL` | — | Redis URL for the Celery broker **(required)** |
 | `CELERYHUB_DB_PATH` | `./data/celeryhub.db` | SQLite database path |
 | `CELERY_RESULT_BACKEND` | same as broker | Redis URL for task results |
-| `PORT` | `3000` | FastAPI server port |
-| `VITE_PORT` | `5173` | Vite dev server port |
-| `CELERYHUB_TASK_TTL` | `0` (no expiration) | Redis TTL in seconds for task metadata. `0` = persist forever, `604800` = 7 days |
-| `CORS_ORIGINS` | `*` | Comma-separated list of allowed CORS origins |
+| `PORT` | `3000` | Server port (API + frontend) |
+| `CELERYHUB_TASK_TTL` | `604800` (7 days) | Redis TTL in seconds for task metadata. `0` = no expiration |
+| `CORS_ORIGINS` | `[]` (empty) | Comma-separated list of allowed CORS origins |
 | `CELERYHUB_AUTH_TOKEN` | _(empty)_ | Bearer token for destructive endpoints (empty = no auth) |
+| `INSPECT_TIMEOUT` | `5.0` | Timeout in seconds for Celery inspect commands |
+| `INSPECT_CACHE_TTL` | `3.0` | TTL in seconds for cached inspect results |
 
 #### Run
 
@@ -152,10 +172,12 @@ make dev
 
 This starts two services concurrently:
 
-- **FastAPI Server** on `:3000` — API, SSE events, beat scheduler, Celery inspect/control
-- **Vite** on `:5173` — React app with HMR
+- **FastAPI Server** on `:3000` — API, SSE events, workflow scheduler, Celery inspect/control
+- **Vite** on `:5173` — React app with HMR (proxies `/api` to `:3000`)
 
 Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+> In production/Docker, only port **3000** is used — FastAPI serves both the API and the static SPA.
 
 You can also run services individually:
 
@@ -189,7 +211,11 @@ CeleryHub/
 │           ├── routers/        # API endpoints
 │           ├── services/       # Redis, cache, event collector, scheduler
 │           ├── models/         # Pydantic models
-│           └── db/             # SQLAlchemy models
+│           └── db/             # SQLAlchemy models & migrations
+├── tests/
+│   └── integration/            # Docker Compose + Playwright E2E
+├── .github/
+│   └── workflows/              # CI/CD (Docker build on tags)
 ├── Makefile
 └── Dockerfile
 ```
@@ -219,8 +245,8 @@ All endpoints are under `/api`:
 | `POST` | `/api/workflows/:id/run-now` | Run a workflow immediately |
 | `POST` | `/api/workflows/:id/duplicate` | Duplicate a workflow |
 | `GET` | `/api/workflows/:id/runs` | Get workflow run history |
-| `GET` | `/api/workflows/:id/runs/:runId` | Get workflow run details |
-| `POST` | `/api/workflows/:id/runs/:runId/cancel` | Cancel a workflow run |
+| `GET` | `/api/workflows/runs/:runId` | Get workflow run details |
+| `POST` | `/api/workflows/runs/:runId/cancel` | Cancel a workflow run |
 | `GET` | `/api/events` | SSE event stream |
 | `POST` | `/api/control/pool-grow` | Increase worker pool size |
 | `POST` | `/api/control/pool-shrink` | Decrease worker pool size |
@@ -253,7 +279,7 @@ CeleryHub is designed to be lightweight. Benchmarks run on a 3-stage Alpine-base
 
 | Scenario | RAM | Notes |
 |---|---|---|
-| Idle (just started) | **~70 MB** | FastAPI + uvicorn + SQLite + Redis connection + background tasks (event collector, beat scheduler, cache timers) |
+| Idle (just started) | **~70 MB** | FastAPI + uvicorn + SQLite + Redis connection + background tasks (event collector, workflow scheduler, cache timers) |
 | After light usage (all endpoints exercised) | **~73 MB** | Minimal increase |
 | Under load (500 concurrent requests) | **~84 MB** | Mix of GET/POST across all endpoints |
 | After cooldown | **~84 MB** | Memory stabilizes, no leaks observed |
@@ -263,15 +289,15 @@ CeleryHub is designed to be lightweight. Benchmarks run on a 3-stage Alpine-base
 
 - **Container:** Single uvicorn process (no `--workers`), Alpine Linux
 - **Broker:** Redis 7 (Alpine) on the same host, empty (no Celery workers connected)
-- **Database:** SQLite in-memory volume, ~2 beat schedules
-- **Load test:** 500 requests fired concurrently (100 batches × 5 endpoints: `/health`, `/api/tasks/active`, `/api/queues`, `/api/beats/`, `POST /api/tasks/send`), 1 error (race condition on first request)
+- **Database:** SQLite in-memory volume, ~2 workflows
+- **Load test:** 500 requests fired concurrently (100 batches × 5 endpoints: `/health`, `/api/tasks/active`, `/api/queues`, `/api/workflows`, `POST /api/tasks/send`), 1 error (race condition on first request)
 - **Host:** macOS, Docker Desktop, 16 GB RAM available to the VM
 
 For production with real worker traffic, expect memory to grow proportionally to the number of cached tasks and active SSE connections. The multi-key background cache (`CeleryCache`) keeps data in-process with configurable TTLs (2–60s per key).
 
 ## Testing
 
-CeleryHub includes a comprehensive test suite with **162 tests** covering unit, service, and API layers.
+CeleryHub includes a comprehensive test suite with **172 tests** covering unit, service, and API layers.
 
 ### Run tests
 
@@ -291,25 +317,50 @@ pytest --cov=celery_gateway --cov-report=term-missing
 
 ```
 tests/
-├── conftest.py              # Shared fixtures (DB, Redis, HTTP client)
-├── unit/                    # Pure logic, no I/O
-│   ├── test_kombu_parser.py       # Kombu message parsing (24 tests)
-│   ├── test_redis_client.py       # URL parsing (8 tests)
-│   ├── test_beat_scheduler_logic.py  # Cron/interval computation (17 tests)
-│   ├── test_config.py             # Settings defaults (5 tests)
-│   └── test_pydantic_models.py    # Model validation (19 tests)
-├── service/                 # With fakeredis / mocks
-│   ├── test_celery_redis.py       # Redis operations (21 tests)
-│   ├── test_cache.py              # CeleryCache behavior (8 tests)
-│   └── test_inspect_cache.py      # InspectCache TTL/stale (8 tests)
-└── api/                     # Full HTTP via httpx + ASGI
-    ├── test_beats_router.py       # CRUD + toggle + run-now (23 tests)
-    ├── test_tasks_router.py       # Send, revoke, status (20 tests)
-    ├── test_queues_router.py      # Queue details (3 tests)
-    └── test_health.py             # Health check (3 tests)
+├── conftest.py                    # Shared fixtures (DB, Redis, HTTP client)
+├── unit/                          # Pure logic, no I/O
+│   ├── test_kombu_parser.py             # Kombu message parsing (24 tests)
+│   ├── test_redis_client.py             # URL parsing (8 tests)
+│   ├── test_beat_scheduler_logic.py     # Cron/interval computation (17 tests)
+│   ├── test_config.py                   # Settings defaults (5 tests)
+│   └── test_pydantic_models.py          # Model validation (22 tests)
+├── service/                       # With fakeredis / mocks
+│   ├── test_celery_redis.py             # Redis operations (24 tests)
+│   ├── test_cache.py                    # CeleryCache behavior (8 tests)
+│   └── test_inspect_cache.py            # InspectCache TTL/stale (8 tests)
+└── api/                           # Full HTTP via httpx + ASGI
+    ├── test_workflows_router.py         # CRUD + toggle + run-now (30 tests)
+    ├── test_tasks_router.py             # Send, revoke, status (20 tests)
+    ├── test_queues_router.py            # Queue details (3 tests)
+    └── test_health.py                   # Health check (3 tests)
 ```
 
 Key test dependencies: `pytest`, `pytest-asyncio`, `httpx`, `fakeredis`, `pytest-cov`.
+
+### Integration tests
+
+The `tests/integration/` directory contains end-to-end tests that run against real services via Docker Compose:
+
+- **`test_api.py`** — REST API tests against CeleryHub + Redis + a Celery worker
+- **`test_frontend.py`** — Browser tests with Playwright
+- Test worker with 3 tasks: `integration.add`, `integration.slow_task`, `integration.fail_task`
+
+```bash
+make test-integration
+```
+
+Requires Docker.
+
+## CI/CD
+
+GitHub Actions builds and pushes a multi-tag Docker image to GHCR on every version tag (`v*`):
+
+```
+ghcr.io/danield2g/celeryhub:latest
+ghcr.io/danield2g/celeryhub:<version>
+```
+
+See [`.github/workflows/docker-build.yml`](.github/workflows/docker-build.yml).
 
 ## Security
 
