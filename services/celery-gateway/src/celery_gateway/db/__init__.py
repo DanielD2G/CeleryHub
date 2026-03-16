@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -40,7 +40,24 @@ async def init_db() -> None:
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    await _run_migrations(_engine)
+
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
+
+
+async def _run_migrations(engine: AsyncEngine) -> None:
+    """Add missing columns to existing tables for backward compatibility."""
+    _migrations: list[tuple[str, str, str]] = [
+        ("workflow_steps", "timeout_seconds", "INTEGER"),
+    ]
+    async with engine.begin() as conn:
+        for table, column, col_type in _migrations:
+            existing = await conn.execute(text(f"PRAGMA table_info({table})"))
+            col_names = {row[1] for row in existing.fetchall()}
+            if column not in col_names:
+                await conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                )
 
 
 @asynccontextmanager

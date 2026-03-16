@@ -219,6 +219,7 @@ async def create_workflow(body: CreateWorkflowInput) -> JSONResponse:
                 queue=step.queue or "celery",
                 depends_on=json.dumps(step.depends_on),
                 condition=step.condition,
+                timeout_seconds=step.timeout_seconds,
             )
             session.add(ws)
 
@@ -369,6 +370,7 @@ async def update_workflow(
                     queue=step.queue or "celery",
                     depends_on=json.dumps(step.depends_on),
                     condition=step.condition,
+                    timeout_seconds=step.timeout_seconds,
                 )
                 session.add(ws)
 
@@ -496,6 +498,7 @@ async def duplicate_workflow(
                 queue=step.queue,
                 depends_on=json.dumps(new_deps),
                 condition=step.condition,
+                timeout_seconds=step.timeout_seconds,
             )
             session.add(ws)
 

@@ -30,6 +30,7 @@ export interface StepEditorState {
   queue: string;
   argItems: string[];
   kwargPairs: [string, string][];
+  timeoutSeconds: number | null;
 }
 
 interface WorkflowStepEditorProps {
@@ -238,6 +239,23 @@ export function WorkflowStepEditor({
         </div>
       </div>
 
+      <div className="space-y-1.5">
+        <Label>Timeout (seconds)</Label>
+        <Input
+          type="number"
+          min={0}
+          value={step.timeoutSeconds ?? ""}
+          onChange={(e) =>
+            onChange({
+              ...step,
+              timeoutSeconds: e.target.value ? parseInt(e.target.value, 10) : null,
+            })
+          }
+          placeholder="No timeout"
+          className="w-40"
+        />
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label>Args</Label>
@@ -269,6 +287,7 @@ export function stepEditorToApi(step: StepEditorState): {
   queue: string | null;
   dependsOn: string[];
   condition: string;
+  timeoutSeconds: number | null;
 } {
   return {
     id: step.id,
@@ -279,6 +298,7 @@ export function stepEditorToApi(step: StepEditorState): {
     queue: step.queue || null,
     dependsOn: step.dependsOn,
     condition: step.condition,
+    timeoutSeconds: step.timeoutSeconds,
   };
 }
 
@@ -291,6 +311,7 @@ export function apiToStepEditor(step: {
   queue: string | null;
   dependsOn: string;
   condition: string;
+  timeoutSeconds?: number | null;
 }): StepEditorState {
   return {
     id: step.id,
@@ -301,5 +322,6 @@ export function apiToStepEditor(step: {
     queue: step.queue || "celery",
     argItems: parseArgsToItems(step.args || "[]"),
     kwargPairs: parseKwargsToPairs(step.kwargs || "{}"),
+    timeoutSeconds: step.timeoutSeconds ?? null,
   };
 }

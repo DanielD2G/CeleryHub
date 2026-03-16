@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import type { WorkflowRunDetail, Workflow } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -15,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { WorkflowDag } from "@/components/workflows/workflow-dag";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, XCircle } from "lucide-react";
 import {
   formatWorkflowDate,
   WorkflowStatusBadge,
@@ -28,6 +29,7 @@ export default function WorkflowRunPage() {
   const [run, setRun] = useState<WorkflowRunDetail | null>(null);
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cancelling, setCancelling] = useState(false);
   useDocumentTitle(run ? `Run ${run.id.slice(0, 8)}` : "Run Detail");
 
   const fetchData = useCallback(() => {
@@ -52,6 +54,19 @@ export default function WorkflowRunPage() {
   }, [id, runId, navigate]);
 
   const isRunning = run?.status === "running";
+
+  const handleCancelRun = async () => {
+    if (!runId) return;
+    setCancelling(true);
+    try {
+      await apiPost(`/api/workflows/runs/${runId}/cancel`);
+      fetchData();
+    } catch {
+      // next poll will show current status
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -98,6 +113,17 @@ export default function WorkflowRunPage() {
             )}
           </div>
         </div>
+        {isRunning && (
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={cancelling}
+            onClick={handleCancelRun}
+          >
+            <XCircle className="mr-1.5 h-4 w-4" />
+            Cancel Run
+          </Button>
+        )}
       </div>
 
       {workflow && workflow.steps.length > 0 && (

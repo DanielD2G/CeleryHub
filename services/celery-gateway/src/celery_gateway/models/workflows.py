@@ -38,6 +38,7 @@ class StepInput(_JsonFieldMixin, CamelModel):
     condition: Literal[
         "all_succeeded", "all_completed", "any_succeeded", "any_failed"
     ] = "all_succeeded"
+    timeout_seconds: int | None = None
 
 
 class CreateWorkflowInput(CamelModel):
@@ -76,6 +77,7 @@ class StepResponse(CamelModel):
     queue: str | None
     depends_on: str
     condition: str
+    timeout_seconds: int | None
 
 
 class WorkflowResponse(CamelModel):

@@ -201,6 +201,7 @@ class TestWorkflowResponse:
             queue = "celery"
             depends_on = "[]"
             condition = "all_succeeded"
+            timeout_seconds = None
 
         class FakeORM:
             id = "abc"

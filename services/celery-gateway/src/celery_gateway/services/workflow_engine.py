@@ -21,6 +21,7 @@ _TERMINAL_STEP_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "ski
 _TERMINAL_TASK_STATUSES: frozenset[str] = frozenset({"SUCCESS", "FAILURE"})
 
 _workflow_run_locks: dict[str, asyncio.Lock] = {}
+_timeout_tasks: dict[str, asyncio.Task[None]] = {}
 
 
 def _get_run_lock(workflow_run_id: str) -> asyncio.Lock:
@@ -115,6 +116,11 @@ async def on_task_completed(
                 step_run.finished_at = datetime.now(timezone.utc)
                 workflow_run_id = step_run.workflow_run_id
 
+                # Cancel timeout if step completed naturally
+                timeout_task = _timeout_tasks.pop(step_run_id, None)
+                if timeout_task is not None:
+                    timeout_task.cancel()
+
         await session.commit()
 
     if all_terminal and step_run and workflow_run_id:
@@ -141,6 +147,9 @@ async def cancel_workflow_run(workflow_run_id: str) -> bool:
             if sr.status in ("pending", "running"):
                 sr.status = "skipped"
                 sr.finished_at = now
+            timeout_task = _timeout_tasks.pop(sr.id, None)
+            if timeout_task is not None:
+                timeout_task.cancel()
 
         await session.commit()
         _cleanup_run_lock(workflow_run_id)
@@ -303,3 +312,52 @@ async def _dispatch_step(
     elif not task_names:
         step_run.status = "succeeded"
         step_run.finished_at = datetime.now(timezone.utc)
+
+    # Start timeout if configured and step is still running
+    if (
+        step_def.timeout_seconds
+        and step_def.timeout_seconds > 0
+        and step_run.status == "running"
+    ):
+        _timeout_tasks[step_run.id] = asyncio.create_task(
+            _handle_step_timeout(
+                step_run.id, step_run.workflow_run_id, step_def.timeout_seconds
+            )
+        )
+
+
+async def _handle_step_timeout(
+    step_run_id: str, workflow_run_id: str, timeout_seconds: int
+) -> None:
+    """Wait for timeout, then fail the step if still running."""
+    await asyncio.sleep(timeout_seconds)
+    await _expire_step(step_run_id, workflow_run_id, timeout_seconds)
+
+
+async def _expire_step(
+    step_run_id: str, workflow_run_id: str, timeout_seconds: int
+) -> None:
+    """Mark a running step as failed due to timeout and advance the workflow."""
+    async with get_session() as session:
+        result = await session.execute(
+            select(StepRun)
+            .options(selectinload(StepRun.task_runs))
+            .where(StepRun.id == step_run_id)
+            .limit(1)
+        )
+        step_run = result.scalar_one_or_none()
+        if step_run is None or step_run.status != "running":
+            return
+
+        step_run.status = "failed"
+        step_run.finished_at = datetime.now(timezone.utc)
+
+        for tr in step_run.task_runs:
+            if tr.status not in _TERMINAL_TASK_STATUSES:
+                tr.status = "FAILURE"
+                tr.error = f"Step timed out after {timeout_seconds}s"
+
+        await session.commit()
+
+    _timeout_tasks.pop(step_run_id, None)
+    await _advance_workflow(workflow_run_id)

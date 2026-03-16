@@ -155,6 +155,7 @@ export interface WorkflowStep {
   queue: string | null;
   dependsOn: string; // JSON string of step IDs
   condition: string;
+  timeoutSeconds: number | null;
 }
 
 export interface Workflow {

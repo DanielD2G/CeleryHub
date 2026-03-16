@@ -37,6 +37,7 @@ export interface CreateWorkflowInput {
     queue: string | null;
     dependsOn: string[];
     condition: string;
+    timeoutSeconds: number | null;
   }[];
 }
 
@@ -125,6 +126,7 @@ export function WorkflowForm({
         queue: "celery",
         argItems: [],
         kwargPairs: [],
+        timeoutSeconds: null,
       },
     ]);
   };
@@ -187,6 +189,7 @@ export function WorkflowForm({
       queue: s.queue || null,
       dependsOn: JSON.stringify(s.dependsOn),
       condition: s.condition,
+      timeoutSeconds: null,
     }));
 
   return (

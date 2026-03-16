@@ -67,6 +67,7 @@ class WorkflowStep(Base):
     condition: Mapped[str] = mapped_column(
         String, nullable=False, default="all_succeeded"
     )  # "all_succeeded"|"all_completed"|"any_succeeded"|"any_failed"
+    timeout_seconds: Mapped[int | None] = mapped_column(Integer, default=None)
 
     workflow: Mapped["Workflow"] = relationship(back_populates="steps")
 
