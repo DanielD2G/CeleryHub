@@ -25,11 +25,16 @@
 
 **Files:**
 - Modify: `services/celery-gateway/src/celery_gateway/db/models.py`
+- Create: `services/celery-gateway/src/celery_gateway/db/events_ddl.py`
 - Create: `services/celery-gateway/migrations/versions/0002_celery_events.py`
 - Create: `services/celery-gateway/migrations/versions/0003_settings.py`
+- Modify: `services/celery-gateway/tests/conftest.py`
 
 **Interfaces:**
 - Produces: ORM model `CeleryEvent` (table `celery_events`); ORM model `Setting` (table `settings`, columns `key: str` PK, `value: str`). Parent table `celery_events` is `PARTITION BY RANGE (event_time)` with a `UNIQUE (event_uid, event_time)` constraint.
+- Produces: `db/events_ddl.py` exposing `CELERY_EVENTS_STATEMENTS: list[str]` (the partitioned `CREATE TABLE` + 3 `CREATE INDEX` statements) — the single source of truth for the partitioned-table DDL, imported by BOTH migration `0002` and the test fixture.
+
+**Why a shared DDL module:** `Base.metadata.create_all` (used by the test fixtures) cannot express `PARTITION BY RANGE`, the composite PK, or the `GENERATED ALWAYS AS IDENTITY` / `UNIQUE` that `celery_events` needs. So `celery_events` must be EXCLUDED from `create_all` and built from the same raw DDL in both prod (Alembic) and tests. Putting the DDL in one module keeps prod and test schemas identical (the whole-branch review of Plan 1 flagged this divergence risk).
 
 - [ ] **Step 1: Add the models to `models.py`**
 
@@ -71,9 +76,53 @@ class Setting(Base):
     value: Mapped[str] = mapped_column(String, nullable=False)
 ```
 
-- [ ] **Step 2: Create `migrations/versions/0002_celery_events.py`**
+- [ ] **Step 2: Create the shared DDL module `src/celery_gateway/db/events_ddl.py`**
 
-`create_all` cannot express native partitioning, so the parent table is authored in raw SQL. Helper functions to create/drop partitions live here too (callable from app code via plain SQL — see Task 6/7).
+`create_all` cannot express native partitioning, so the parent table is authored in raw SQL. This module is the single source of truth, imported by both the migration and the test fixture.
+
+```python
+from __future__ import annotations
+
+# Single source of truth for the partitioned celery_events table DDL.
+# Imported by Alembic migration 0002 (prod) and the test fixture (tests),
+# so the prod and test schemas never diverge. create_all cannot express
+# PARTITION BY RANGE / composite PK / GENERATED IDENTITY, so celery_events
+# is always built from these statements, never from Base.metadata.create_all.
+
+_CREATE_TABLE = """
+CREATE TABLE celery_events (
+    id          bigint GENERATED ALWAYS AS IDENTITY,
+    event_uid   text        NOT NULL,
+    event_time  timestamptz NOT NULL,
+    event_type  text        NOT NULL,
+    task_id     text,
+    task_name   text,
+    hostname    text,
+    queue       text,
+    runtime     double precision,
+    result      text,
+    exception   text,
+    traceback   text,
+    payload     jsonb       NOT NULL,
+    ingested_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (id, event_time),
+    UNIQUE (event_uid, event_time)
+) PARTITION BY RANGE (event_time);
+"""
+
+CELERY_EVENTS_STATEMENTS: list[str] = [
+    _CREATE_TABLE,
+    "CREATE INDEX idx_celery_events_task_id ON celery_events (task_id);",
+    "CREATE INDEX idx_celery_events_name_time ON celery_events (task_name, event_time);",
+    "CREATE INDEX idx_celery_events_type_time ON celery_events (event_type, event_time);",
+]
+
+DROP_CELERY_EVENTS: str = "DROP TABLE IF EXISTS celery_events CASCADE;"
+```
+
+- [ ] **Step 3: Create `migrations/versions/0002_celery_events.py`**
+
+The migration imports the shared statements so prod uses exactly the DDL the tests use.
 
 ```python
 """celery_events partitioned table
@@ -84,6 +133,8 @@ Create Date: 2026-06-19
 """
 from alembic import op
 
+from celery_gateway.db.events_ddl import CELERY_EVENTS_STATEMENTS, DROP_CELERY_EVENTS
+
 revision = "0002"
 down_revision = "0001"
 branch_labels = None
@@ -91,46 +142,49 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
-        CREATE TABLE celery_events (
-            id          bigint GENERATED ALWAYS AS IDENTITY,
-            event_uid   text        NOT NULL,
-            event_time  timestamptz NOT NULL,
-            event_type  text        NOT NULL,
-            task_id     text,
-            task_name   text,
-            hostname    text,
-            queue       text,
-            runtime     double precision,
-            result      text,
-            exception   text,
-            traceback   text,
-            payload     jsonb       NOT NULL,
-            ingested_at timestamptz NOT NULL DEFAULT now(),
-            PRIMARY KEY (id, event_time),
-            UNIQUE (event_uid, event_time)
-        ) PARTITION BY RANGE (event_time);
-        """
-    )
-    op.execute(
-        "CREATE INDEX idx_celery_events_task_id ON celery_events (task_id);"
-    )
-    op.execute(
-        "CREATE INDEX idx_celery_events_name_time "
-        "ON celery_events (task_name, event_time);"
-    )
-    op.execute(
-        "CREATE INDEX idx_celery_events_type_time "
-        "ON celery_events (event_type, event_time);"
-    )
+    for statement in CELERY_EVENTS_STATEMENTS:
+        op.execute(statement)
 
 
 def downgrade() -> None:
-    op.execute("DROP TABLE celery_events;")
+    op.execute(DROP_CELERY_EVENTS)
 ```
 
-- [ ] **Step 3: Create `migrations/versions/0003_settings.py`**
+(`alembic.ini` has `prepend_sys_path = src`, so `from celery_gateway.db.events_ddl import ...` resolves when alembic runs.)
+
+- [ ] **Step 4: Update the test fixture `tests/conftest.py` to build the events schema**
+
+`celery_events` must be excluded from `create_all` and built from the shared DDL. In the `db_engine` fixture, change the schema-setup block so it creates every table EXCEPT `celery_events` via `create_all`, then runs the shared statements. Replace the fixture body's setup/teardown with:
+
+```python
+@pytest.fixture
+async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
+    from sqlalchemy import text
+    from celery_gateway.db.events_ddl import (
+        CELERY_EVENTS_STATEMENTS,
+        DROP_CELERY_EVENTS,
+    )
+
+    engine = create_async_engine(test_database_url(), echo=False)
+    _regular = [t for t in Base.metadata.sorted_tables if t.name != "celery_events"]
+    async with engine.begin() as conn:
+        await conn.execute(text(DROP_CELERY_EVENTS))
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=_regular))
+        for statement in CELERY_EVENTS_STATEMENTS:
+            await conn.execute(text(statement))
+    yield engine
+    async with engine.begin() as conn:
+        await conn.execute(text(DROP_CELERY_EVENTS))
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
+```
+
+Note: `Base.metadata.drop_all` would try to drop `celery_events` too, but the explicit `DROP_CELERY_EVENTS` (with `CASCADE`, dropping child partitions) runs first; `drop_all` then no-ops on the already-gone table. Any per-test partitions created by `ensure_partitions` are children and are removed by the `CASCADE` drop.
+
+**Cross-task testing convention (applies to Tasks 5–8):** the `db_session` fixture patches `get_session` per-module (existing pattern: each module does `from ..db import get_session`, so the bound name must be patched in that module's namespace). When a later task creates a module that calls `get_session` and has tests that must hit the test DB, that task ALSO adds a `patch("celery_gateway.services.<module>.get_session", _override_get_session)` (or `routers.<module>`) line to the `db_session` fixture's patch block in conftest. The modules needing this: `services.event_persister` (Task 5), `services.retention` (Task 6), `services.settings_store` (Task 7), `routers.event_log` (Task 8). Do not add these patches before the module exists — add each alongside its task, or the patch block will `ImportError` on missing modules.
+
+- [ ] **Step 5: Create `migrations/versions/0003_settings.py`**
 
 ```python
 """settings table
@@ -160,20 +214,24 @@ def downgrade() -> None:
     op.drop_table("settings")
 ```
 
-- [ ] **Step 4: Apply migrations**
+- [ ] **Step 6: Apply migrations**
 
 Run: `cd services/celery-gateway && DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/celeryhub alembic upgrade head`
 Expected: upgrades `0002` and `0003` run; exit 0.
 
-- [ ] **Step 5: Verify partitioned table**
+- [ ] **Step 7: Verify partitioned table (prod) and test-schema parity**
 
 Run: `docker exec ch-pg psql -U postgres -d celeryhub -c "\d+ celery_events"`
 Expected: shows `Partition key: RANGE (event_time)`.
 
-- [ ] **Step 6: Commit**
+Then confirm the test fixture builds the same schema — run any one existing DB-touching test and confirm it still passes (the fixture now creates `celery_events` via the shared DDL):
+Run: `pytest tests/api/test_workflows_router.py -q`
+Expected: passes (proves the modified `db_engine` fixture works).
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add services/celery-gateway/src/celery_gateway/db/models.py services/celery-gateway/migrations/versions/0002_celery_events.py services/celery-gateway/migrations/versions/0003_settings.py
+git add services/celery-gateway/src/celery_gateway/db/models.py services/celery-gateway/src/celery_gateway/db/events_ddl.py services/celery-gateway/migrations/versions/0002_celery_events.py services/celery-gateway/migrations/versions/0003_settings.py services/celery-gateway/tests/conftest.py
 git commit -m "feat(events): add celery_events partitioned table and settings table"
 ```
 
