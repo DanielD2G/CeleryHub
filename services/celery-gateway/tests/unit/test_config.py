@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from unittest.mock import patch
 
 from celery_gateway.config import Settings
@@ -10,7 +11,7 @@ class TestSettings:
         s = Settings()
         assert s.celery_broker_url == "redis://localhost:6379/0"
         assert s.port == 3000
-        assert s.celeryhub_db_path == "./data/celeryhub.db"
+        assert s.database_url == "postgresql+asyncpg://postgres:postgres@localhost:5432/celeryhub"
         assert s.celery_result_backend is None
         assert s.inspect_timeout == 5.0
         assert s.inspect_cache_ttl == 3.0
@@ -33,8 +34,24 @@ class TestSettings:
         s = Settings(
             celery_broker_url="redis://custom:6380/2",
             port=8080,
-            celeryhub_db_path="/tmp/test.db",
+            database_url="postgresql+asyncpg://u:p@db:5432/x",
         )
         assert s.celery_broker_url == "redis://custom:6380/2"
         assert s.port == 8080
-        assert s.celeryhub_db_path == "/tmp/test.db"
+        assert s.database_url == "postgresql+asyncpg://u:p@db:5432/x"
+
+
+def test_database_url_defaults_to_asyncpg(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    import celery_gateway.config as config
+
+    config = importlib.reload(config)
+    assert config.settings.database_url.startswith("postgresql+asyncpg://")
+
+
+def test_database_url_reads_env(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db:5432/x")
+    import celery_gateway.config as config
+
+    config = importlib.reload(config)
+    assert config.settings.database_url == "postgresql+asyncpg://u:p@db:5432/x"
