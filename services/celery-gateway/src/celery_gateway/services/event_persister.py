@@ -18,6 +18,7 @@ from .redis_client import get_redis
 logger = logging.getLogger(__name__)
 
 EVENTS_GROUP = "celeryhub-persisters"
+# Single fixed consumer name; no XAUTOCLAIM — assumes single-instance deployment with clean shutdown.
 _CONSUMER = "persister-1"
 _BATCH = 500
 _BLOCK_MS = 1000
@@ -43,7 +44,12 @@ def _decode_entries(raw: Any) -> list[tuple[str, dict[str, Any]]]:
         for msg_id, fields in messages:
             try:
                 out.append((msg_id, json.loads(fields["data"])))
-            except (KeyError, json.JSONDecodeError):
+            except (KeyError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "[CeleryHub EventPersister] Skipping malformed stream entry %s: %s",
+                    msg_id,
+                    exc,
+                )
                 out.append((msg_id, {}))
     return out
 

@@ -162,6 +162,20 @@ settings
 - **Buffer:** simular Postgres caído → eventos se acumulan en el stream → se
   recuperan al volver.
 
+## Durability and known limitations
+
+### Bounded buffer (MAXLEN)
+
+`XADD` is called with `MAXLEN ~ 1M` (approximate). Redis trims the **oldest** stream entries once the cap is reached, regardless of whether they have been acknowledged by the consumer group. Under a sustained Postgres or persister outage long enough that un-persisted events accumulate beyond ~1M entries, the oldest un-persisted entries are trimmed and **permanently lost**. At-least-once durability holds only within the buffer window. To tolerate longer outages, raise `CELERYHUB_EVENTS_STREAM_MAXLEN` (higher memory cost) or add external monitoring that alerts before the stream fills.
+
+### Single consumer / no crash-recovery of pending entries
+
+The persister uses one fixed consumer name (`persister-1`) and does **not** call `XAUTOCLAIM` to reclaim idle pending entries. If the process is killed hard between `XREADGROUP` and `XACK`, those entries remain in the PEL (pending-entry list) and will not be reprocessed on the next startup. This is an accepted tradeoff for a single-instance deployment with clean shutdown semantics; it does **not** self-heal.
+
+### Worker events not persisted
+
+Only task events that carry a Celery `uuid` are inserted into `celery_events`. Worker lifecycle and heartbeat events (e.g. `worker-online`, `worker-heartbeat`) are intentionally excluded from persistence — they remain visible in the live SSE view via the Redis hot layer but are not written to Postgres.
+
 ## Fuera de alcance (YAGNI)
 
 - TimescaleDB / compresión / continuous aggregates.

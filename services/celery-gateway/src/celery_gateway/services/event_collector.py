@@ -172,6 +172,10 @@ async def _persist_event(event: dict[str, Any]) -> None:
 async def _publish_to_stream(event: dict[str, Any]) -> None:
     redis = get_redis()
     try:
+# MAXLEN is an approximate cap that bounds the buffer. Under a sustained
+# Postgres/persister outage, once the un-persisted backlog exceeds the cap
+# (~1M entries), the oldest un-persisted events are trimmed and permanently
+# lost. At-least-once durability holds only within the buffer window.
         await redis.xadd(
             EVENTS_STREAM_KEY,
             {"data": json.dumps(event)},
