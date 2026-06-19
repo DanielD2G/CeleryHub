@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import (
 from celery_gateway.db.models import Base
 from celery_gateway.services.cache import CeleryCache
 from celery_gateway.services.inspect_cache import InspectCache
+from tests._db import test_database_url
 
 
 # ---------------------------------------------------------------------------
@@ -27,10 +28,13 @@ from celery_gateway.services.inspect_cache import InspectCache
 
 @pytest.fixture
 async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
-    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    engine = create_async_engine(test_database_url(), echo=False)
     async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield engine
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
 
