@@ -18,6 +18,8 @@ from .db import close_db, init_db
 from .routers import control, event_log, events, queues, tasks, workflows, workers
 from .services.cache import CeleryCache
 from .services.event_collector import start_event_collector, stop_event_collector
+from .services.event_persister import start_event_persister, stop_event_persister
+from .services.retention import start_retention, stop_retention
 from .services.scheduler import start_scheduler, stop_scheduler
 from .services.inspect_cache import InspectCache
 from .services.redis_client import close_redis
@@ -42,6 +44,8 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
 
     collector_task = start_event_collector()
     scheduler_task = start_scheduler()
+    persister_task = start_event_persister()
+    retention_task = start_retention()
 
     yield
 
@@ -49,6 +53,9 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     await stop_scheduler(scheduler_task)
     if collector_task is not None:
         await stop_event_collector(collector_task)
+    await stop_retention(retention_task)
+    if persister_task is not None:
+        await stop_event_persister(persister_task)
     celery_cache.stop()
     await close_db()
     await close_redis()
