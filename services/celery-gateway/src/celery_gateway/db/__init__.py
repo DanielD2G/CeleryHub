@@ -1,8 +1,6 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -11,53 +9,20 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from ..config import settings
-from .models import Base
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def _set_sqlite_pragmas(dbapi_conn: object, _connection_record: object) -> None:
-    cursor = dbapi_conn.cursor()  # type: ignore[union-attr]
-    cursor.execute("PRAGMA journal_mode = WAL")
-    cursor.execute("PRAGMA foreign_keys = ON")
-    cursor.close()
-
-
 async def init_db() -> None:
     global _engine, _session_factory
 
-    db_path: str = settings.celeryhub_db_path
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
     _engine = create_async_engine(
-        f"sqlite+aiosqlite:///{db_path}",
+        settings.database_url,
         echo=False,
+        pool_pre_ping=True,
     )
-
-    event.listen(_engine.sync_engine, "connect", _set_sqlite_pragmas)
-
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    await _run_migrations(_engine)
-
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
-
-
-async def _run_migrations(engine: AsyncEngine) -> None:
-    """Add missing columns to existing tables for backward compatibility."""
-    _migrations: list[tuple[str, str, str]] = [
-        ("workflow_steps", "timeout_seconds", "INTEGER"),
-    ]
-    async with engine.begin() as conn:
-        for table, column, col_type in _migrations:
-            existing = await conn.execute(text(f"PRAGMA table_info({table})"))
-            col_names = {row[1] for row in existing.fetchall()}
-            if column not in col_names:
-                await conn.execute(
-                    text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
-                )
 
 
 @asynccontextmanager
