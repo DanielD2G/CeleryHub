@@ -69,6 +69,7 @@ async def db_session(
         patch("celery_gateway.services.event_persister.get_session", _override_get_session),
         patch("celery_gateway.services.retention.get_session", _override_get_session),
         patch("celery_gateway.services.settings_store.get_session", _override_get_session),
+        patch("celery_gateway.routers.event_log.get_session", _override_get_session),
     ):
         async with factory() as session:
             yield session

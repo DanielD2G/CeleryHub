@@ -15,7 +15,7 @@ from . import VERSION
 from .celery_app import app as celery_app
 from .config import settings
 from .db import close_db, init_db
-from .routers import control, events, queues, tasks, workflows, workers
+from .routers import control, event_log, events, queues, tasks, workflows, workers
 from .services.cache import CeleryCache
 from .services.event_collector import start_event_collector, stop_event_collector
 from .services.scheduler import start_scheduler, stop_scheduler
@@ -70,6 +70,7 @@ app.include_router(control.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
 app.include_router(queues.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
+app.include_router(event_log.router, prefix="/api")
 
 
 @app.get("/health")
