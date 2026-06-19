@@ -28,12 +28,23 @@ from tests._db import test_database_url
 
 @pytest.fixture
 async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
+    from sqlalchemy import text
+    from celery_gateway.db.events_ddl import (
+        CELERY_EVENTS_STATEMENTS,
+        DROP_CELERY_EVENTS,
+    )
+
     engine = create_async_engine(test_database_url(), echo=False)
+    _regular = [t for t in Base.metadata.sorted_tables if t.name != "celery_events"]
     async with engine.begin() as conn:
+        await conn.execute(text(DROP_CELERY_EVENTS))
         await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=_regular))
+        for statement in CELERY_EVENTS_STATEMENTS:
+            await conn.execute(text(statement))
     yield engine
     async with engine.begin() as conn:
+        await conn.execute(text(DROP_CELERY_EVENTS))
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
