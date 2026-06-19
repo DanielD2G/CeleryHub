@@ -40,14 +40,12 @@ WORKDIR /app
 
 COPY --from=py-builder /opt/venv /opt/venv
 COPY --from=web-builder /build/packages/web/dist /app/packages/web/dist/
+COPY --from=py-builder --chown=celeryhub:celeryhub /build/gateway/alembic.ini /app/alembic.ini
+COPY --from=py-builder --chown=celeryhub:celeryhub /build/gateway/migrations/ /app/migrations/
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=3000 \
-    CELERYHUB_DB_PATH=/app/data/celeryhub.db
-
-RUN mkdir -p /app/data && chown -R celeryhub:celeryhub /app/data
-VOLUME ["/app/data"]
+    PORT=3000
 
 USER celeryhub
 
@@ -57,4 +55,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/health || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["sh", "-c", "exec python3 -m uvicorn celery_gateway.main:app --host 0.0.0.0 --port ${PORT:-3000}"]
+CMD ["sh", "-c", "alembic upgrade head && exec python3 -m uvicorn celery_gateway.main:app --host 0.0.0.0 --port ${PORT:-3000}"]
