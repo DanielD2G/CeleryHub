@@ -78,7 +78,6 @@ async def db_session(
         patch("celery_gateway.routers.workflows.get_session", _override_get_session),
         patch("celery_gateway.services.scheduler.get_session", _override_get_session),
         patch("celery_gateway.services.workflow_engine.get_session", _override_get_session),
-        patch("celery_gateway.services.event_collector.get_session", _override_get_session),
         patch("celery_gateway.services.event_persister.get_session", _override_get_session),
         patch("celery_gateway.services.retention.get_session", _override_get_session),
         patch("celery_gateway.services.settings_store.get_session", _override_get_session),

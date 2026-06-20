@@ -6,11 +6,7 @@ import logging
 import time
 from typing import Any, Callable
 
-from sqlalchemy import update
-
 from ..config import settings
-from ..db import get_session
-from ..db.models import TaskRun
 from .kombu_parser import parse_kombu_message
 from .redis_client import create_subscriber, get_db_number, get_redis
 
@@ -189,30 +185,7 @@ async def _publish_to_stream(event: dict[str, Any]) -> None:
 async def _update_run_status(
     task_uuid: str, status: str, *, error: str | None = None
 ) -> None:
-    """Update TaskRun status, then advance workflow."""
-    _db_ok: bool = False
-    try:
-        async with get_session() as session:
-            values: dict[str, Any] = {"status": status}
-            if error is not None:
-                values["error"] = error
-            await session.execute(
-                update(TaskRun)
-                .where(TaskRun.task_id == task_uuid)
-                .values(**values)
-            )
-            await session.commit()
-            _db_ok = True
-    except Exception as exc:
-        logger.warning(
-            "[CeleryHub EventCollector] Failed to update TaskRun %s: %s",
-            task_uuid,
-            exc,
-        )
-
-    if not _db_ok:
-        return
-
+    """Advance any workflow node waiting on this Celery task."""
     try:
         from .workflow_engine import on_task_completed
 
