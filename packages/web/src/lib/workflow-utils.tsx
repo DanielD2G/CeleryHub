@@ -1,4 +1,21 @@
 import { Badge } from "@/components/ui/badge";
+import type { WorkflowNode, Workflow } from "@/lib/types";
+
+/** Populate `position` from raw `positionX`/`positionY` columns returned by the API. */
+export function normalizeWorkflowNode(node: WorkflowNode): WorkflowNode {
+  return {
+    ...node,
+    position:
+      node.positionX != null && node.positionY != null
+        ? { x: node.positionX, y: node.positionY }
+        : null,
+  };
+}
+
+/** Normalize all nodes in a fetched Workflow so `node.position` is consistently set. */
+export function normalizeWorkflow(workflow: Workflow): Workflow {
+  return { ...workflow, nodes: workflow.nodes.map(normalizeWorkflowNode) };
+}
 
 export function formatWorkflowDate(iso: string | null): string {
   if (!iso) return "—";

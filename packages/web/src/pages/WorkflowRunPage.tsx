@@ -20,6 +20,7 @@ import {
   formatWorkflowDate,
   WorkflowStatusBadge,
   formatWorkflowDuration,
+  normalizeWorkflow,
 } from "@/lib/workflow-utils";
 
 export default function WorkflowRunPage() {
@@ -44,7 +45,7 @@ export default function WorkflowRunPage() {
           return;
         }
         setRun(runData);
-        setWorkflow(wfData);
+        setWorkflow(wfData ? normalizeWorkflow(wfData) : null);
       })
       .catch(() => {
         navigate(`/workflows/${id}`, { replace: true });

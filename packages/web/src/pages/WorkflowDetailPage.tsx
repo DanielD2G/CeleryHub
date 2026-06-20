@@ -4,6 +4,7 @@ import { WorkflowDetailClient } from "@/components/workflows/workflow-detail-cli
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { apiGet } from "@/lib/api";
 import type { Workflow, WorkflowRun } from "@/lib/types";
+import { normalizeWorkflow } from "@/lib/workflow-utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function WorkflowDetailPage() {
@@ -26,7 +27,7 @@ export default function WorkflowDetailPage() {
           navigate("/workflows", { replace: true });
           return;
         }
-        setWorkflow(workflowData);
+        setWorkflow(normalizeWorkflow(workflowData));
         setRuns(runsData);
       })
       .catch(() => {
