@@ -27,10 +27,10 @@ class _JsonFieldMixin:
 # ---------------------------------------------------------------------------
 
 
-class StepInput(_JsonFieldMixin, CamelModel):
+class NodeInput(_JsonFieldMixin, CamelModel):
     id: str
     label: str = Field(min_length=1)
-    task_names: list[str] = Field(min_length=1)
+    task_name: str = Field(min_length=1)
     args: str | None = None
     kwargs: str | None = None
     queue: str | None = None
@@ -49,7 +49,7 @@ class CreateWorkflowInput(CamelModel):
     cron_expression: str | None = None
     enabled: bool = True
     max_run_count: int | None = None
-    steps: list[StepInput] = Field(min_length=1)
+    nodes: list[NodeInput] = Field(min_length=1)
 
 
 class UpdateWorkflowInput(CamelModel):
@@ -60,7 +60,7 @@ class UpdateWorkflowInput(CamelModel):
     cron_expression: str | None = None
     enabled: bool | None = None
     max_run_count: int | None = None
-    steps: list[StepInput] | None = None  # full replace if provided
+    nodes: list[NodeInput] | None = None  # full replace if provided
 
 
 # ---------------------------------------------------------------------------
@@ -68,10 +68,10 @@ class UpdateWorkflowInput(CamelModel):
 # ---------------------------------------------------------------------------
 
 
-class StepResponse(CamelModel):
+class NodeResponse(CamelModel):
     id: str
     label: str
-    task_names: str
+    task_name: str
     args: str | None
     kwargs: str | None
     queue: str | None
@@ -94,7 +94,7 @@ class WorkflowResponse(CamelModel):
     next_run_at: datetime | None
     created_at: datetime
     updated_at: datetime
-    steps: list[StepResponse]
+    nodes: list[NodeResponse]
 
 
 class WorkflowSummaryResponse(CamelModel):
@@ -111,29 +111,19 @@ class WorkflowSummaryResponse(CamelModel):
     next_run_at: datetime | None
     created_at: datetime
     updated_at: datetime
-    step_count: int
+    node_count: int
 
 
-class TaskRunResponse(CamelModel):
+class NodeRunResponse(CamelModel):
     id: str
-    task_id: str | None
+    node_id: str
+    label: str
     task_name: str
-    args: str | None
-    kwargs: str | None
-    queue: str | None
+    celery_task_id: str | None
     status: str
     error: str | None
-    sent_at: datetime | None
-
-
-class StepRunResponse(CamelModel):
-    id: str
-    step_id: str
-    step_label: str
-    status: str
     started_at: datetime | None
     finished_at: datetime | None
-    task_runs: list[TaskRunResponse]
 
 
 class WorkflowRunResponse(CamelModel):
@@ -152,4 +142,4 @@ class WorkflowRunDetailResponse(CamelModel):
     trigger: str
     started_at: datetime
     finished_at: datetime | None
-    step_runs: list[StepRunResponse]
+    node_runs: list[NodeRunResponse]

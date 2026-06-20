@@ -19,7 +19,7 @@ from ..models.base import CamelModel
 
 from ..models.workflows import (
     CreateWorkflowInput,
-    StepInput,
+    NodeInput,
     UpdateWorkflowInput,
     WorkflowResponse,
     WorkflowRunDetailResponse,
@@ -37,53 +37,53 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
 # ---------------------------------------------------------------------------
 
 
-def _validate_dag(steps: list[StepInput]) -> None:
-    """Validate that steps form a valid DAG using Kahn's algorithm."""
-    step_ids: set[str] = {s.id for s in steps}
+def _validate_dag(nodes: list[NodeInput]) -> None:
+    """Validate that nodes form a valid DAG using Kahn's algorithm."""
+    node_ids: set[str] = {n.id for n in nodes}
 
     # Check for duplicates
-    if len(step_ids) != len(steps):
-        raise HTTPException(status_code=400, detail="Duplicate step IDs found")
+    if len(node_ids) != len(nodes):
+        raise HTTPException(status_code=400, detail="Duplicate node IDs found")
 
     # Build adjacency and in-degree
-    in_degree: dict[str, int] = {s.id: 0 for s in steps}
-    adjacency: dict[str, list[str]] = {s.id: [] for s in steps}
+    in_degree: dict[str, int] = {n.id: 0 for n in nodes}
+    adjacency: dict[str, list[str]] = {n.id: [] for n in nodes}
 
-    for step in steps:
-        for dep_id in step.depends_on:
-            if dep_id == step.id:
+    for node in nodes:
+        for dep_id in node.depends_on:
+            if dep_id == node.id:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Step '{step.id}' cannot depend on itself",
+                    detail=f"Node '{node.id}' cannot depend on itself",
                 )
-            if dep_id not in step_ids:
+            if dep_id not in node_ids:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Step '{step.id}' depends on unknown step '{dep_id}'",
+                    detail=f"Node '{node.id}' depends on unknown node '{dep_id}'",
                 )
-            adjacency[dep_id].append(step.id)
-            in_degree[step.id] += 1
+            adjacency[dep_id].append(node.id)
+            in_degree[node.id] += 1
 
-    # At least one root step
-    roots: list[str] = [sid for sid, deg in in_degree.items() if deg == 0]
+    # At least one root node
+    roots: list[str] = [nid for nid, deg in in_degree.items() if deg == 0]
     if not roots:
         raise HTTPException(
-            status_code=400, detail="At least one root step (no dependencies) required"
+            status_code=400, detail="At least one root node (no dependencies) required"
         )
 
     # Kahn's algorithm
     queue: deque[str] = deque(roots)
     visited: int = 0
     while queue:
-        node = queue.popleft()
+        current = queue.popleft()
         visited += 1
-        for child in adjacency[node]:
+        for child in adjacency[current]:
             in_degree[child] -= 1
             if in_degree[child] == 0:
                 queue.append(child)
 
-    if visited < len(steps):
-        raise HTTPException(status_code=400, detail="Cycle detected in step dependencies")
+    if visited < len(nodes):
+        raise HTTPException(status_code=400, detail="Cycle detected in node dependencies")
 
 
 def _validate_schedule_fields(
@@ -116,19 +116,19 @@ def _validate_schedule_fields(
 
 
 def _build_step_id_map(step_ids: list[str]) -> dict[str, str]:
-    """Map client-provided step IDs to server-generated UUIDs."""
+    """Map client-provided node IDs to server-generated UUIDs."""
     return {sid: str(uuid.uuid4()) for sid in step_ids}
 
 
-def _remap_step_ids(steps: list[StepInput]) -> list[StepInput]:
-    """Replace client-provided step IDs with server-generated UUIDs."""
-    id_map = _build_step_id_map([s.id for s in steps])
+def _remap_node_ids(nodes: list[NodeInput]) -> list[NodeInput]:
+    """Replace client-provided node IDs with server-generated UUIDs."""
+    id_map = _build_step_id_map([n.id for n in nodes])
     return [
-        step.model_copy(update={
-            "id": id_map[step.id],
-            "depends_on": [id_map.get(d, d) for d in step.depends_on],
+        node.model_copy(update={
+            "id": id_map[node.id],
+            "depends_on": [id_map.get(d, d) for d in node.depends_on],
         })
-        for step in steps
+        for node in nodes
     ]
 
 
