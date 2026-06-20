@@ -14,11 +14,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { WorkflowEditor, _detectIntervalUnit, _toIntervalSeconds } from "@/components/workflows/workflow-editor";
 import { WorkflowRunHistory } from "@/components/workflows/workflow-run-history";
 import { WorkflowCanvas } from "@/components/workflows/workflow-canvas";
 import { formatSchedule } from "@/lib/scheduler/cron";
-import { apiPost, apiPut, apiDelete } from "@/lib/api";
+import { apiPost, apiDelete } from "@/lib/api";
 import { ArrowLeft, Play, Pencil, Trash2, Loader2, Download, Copy } from "lucide-react";
 
 function _InfoRow({
@@ -73,7 +72,6 @@ export function WorkflowDetailClient({
   onRefresh?: () => void;
 }) {
   const navigate = useNavigate();
-  const [editOpen, setEditOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [duplicateName, setDuplicateName] = useState("");
@@ -180,73 +178,10 @@ export function WorkflowDetailClient({
             Run Now
           </Button>
 
-          <Dialog open={editOpen} onOpenChange={setEditOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Edit Workflow</DialogTitle>
-              </DialogHeader>
-              <WorkflowEditor
-                defaultValues={{
-                  name: workflow.name,
-                  description: workflow.description ?? "",
-                  scheduleType: workflow.scheduleType as "none" | "interval" | "cron",
-                  intervalValue: workflow.intervalSeconds
-                    ? String(_detectIntervalUnit(workflow.intervalSeconds).value)
-                    : "10",
-                  intervalUnit: workflow.intervalSeconds
-                    ? _detectIntervalUnit(workflow.intervalSeconds).unit
-                    : "seconds",
-                  cronExpression: workflow.cronExpression ?? "* * * * *",
-                  enabled: workflow.enabled,
-                  maxRunCount: workflow.maxRunCount != null ? String(workflow.maxRunCount) : "",
-                }}
-                nodes={workflow.nodes}
-                onSubmit={async (values, nodes) => {
-                  const intervalSeconds =
-                    values.scheduleType === "interval"
-                      ? _toIntervalSeconds(values.intervalValue, values.intervalUnit)
-                      : undefined;
-                  const payload = {
-                    name: values.name,
-                    description: values.description || null,
-                    scheduleType: values.scheduleType,
-                    intervalSeconds,
-                    cronExpression:
-                      values.scheduleType === "cron" ? values.cronExpression : undefined,
-                    enabled: values.enabled,
-                    maxRunCount: values.maxRunCount ? parseInt(values.maxRunCount, 10) : null,
-                    nodes: nodes.map((n) => ({
-                      id: n.id,
-                      label: n.label,
-                      taskName: n.taskName,
-                      args: n.args ?? "[]",
-                      kwargs: n.kwargs ?? "{}",
-                      queue: n.queue,
-                      dependsOn: JSON.parse(n.dependsOn),
-                      condition: n.condition,
-                      timeoutSeconds: n.timeoutSeconds,
-                      positionX: n.position?.x ?? n.positionX ?? null,
-                      positionY: n.position?.y ?? n.positionY ?? null,
-                    })),
-                  };
-                  const result = await apiPut<{ error?: string }>(
-                    `/api/workflows/${workflow.id}`,
-                    payload,
-                  );
-                  if (result.error) throw new Error(result.error);
-                  setEditOpen(false);
-                  onRefresh?.();
-                }}
-                submitLabel="Save Changes"
-              />
-            </DialogContent>
-          </Dialog>
+          <Button variant="outline" size="sm" onClick={() => navigate(`/workflows/${workflow.id}/edit`)}>
+            <Pencil className="mr-2 h-4 w-4" />
+            Edit
+          </Button>
 
           <Dialog
             open={duplicateOpen}
