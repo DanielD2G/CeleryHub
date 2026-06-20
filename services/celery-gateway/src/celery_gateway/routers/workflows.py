@@ -499,6 +499,8 @@ async def duplicate_workflow(
                 depends_on=json.dumps(new_deps),
                 condition=node.condition,
                 timeout_seconds=node.timeout_seconds,
+                position_x=node.position_x,
+                position_y=node.position_y,
             )
             session.add(wn)
 

@@ -417,6 +417,27 @@ class TestDuplicateWorkflow:
         resp = await client.post("/api/workflows/nonexistent-id/duplicate")
         assert resp.status_code == 404
 
+    async def test_duplicate_preserves_node_positions(self, client: AsyncClient) -> None:
+        # Create a workflow with a node that has position coordinates
+        node = _make_node()
+        node["positionX"] = 100.5
+        node["positionY"] = 200.5
+        created = await _create_unscheduled_workflow(client, nodes=[node])
+        wf_id: str = created["id"]
+
+        # Duplicate the workflow
+        resp = await client.post(f"/api/workflows/{wf_id}/duplicate")
+        assert resp.status_code == 201
+        new_wf_id = resp.json()["id"]
+
+        # Get the duplicated workflow and verify node positions are preserved
+        get_resp = await client.get(f"/api/workflows/{new_wf_id}")
+        assert get_resp.status_code == 200
+        duplicated_wf = get_resp.json()
+        assert len(duplicated_wf["nodes"]) == 1
+        assert duplicated_wf["nodes"][0]["positionX"] == 100.5
+        assert duplicated_wf["nodes"][0]["positionY"] == 200.5
+
 
 class TestRunNow:
     async def test_run_now(self, client: AsyncClient) -> None:
