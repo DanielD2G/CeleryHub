@@ -13,7 +13,7 @@ from sqlalchemy import delete, desc, func, select, update
 from sqlalchemy.orm import selectinload
 
 from ..db import get_session
-from ..db.models import StepRun, Workflow, WorkflowRun, WorkflowStep
+from ..db.models import NodeRun, Workflow, WorkflowNode, WorkflowRun
 from ..middleware.auth import require_auth
 from ..models.base import CamelModel
 
@@ -143,9 +143,9 @@ async def list_workflows() -> Any:
         stmt = (
             select(
                 Workflow,
-                func.count(WorkflowStep.id).label("step_count"),
+                func.count(WorkflowNode.id).label("node_count"),
             )
-            .outerjoin(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
+            .outerjoin(WorkflowNode, WorkflowNode.workflow_id == Workflow.id)
             .group_by(Workflow.id)
             .order_by(desc(Workflow.created_at))
         )
@@ -159,17 +159,17 @@ async def list_workflows() -> Any:
                         c.key: getattr(wf, c.key)
                         for c in Workflow.__table__.columns
                     },
-                    "step_count": step_count,
+                    "node_count": node_count,
                 }
             )
-            for wf, step_count in rows
+            for wf, node_count in rows
         ]
 
 
 @router.post("", response_model=None, dependencies=[Depends(require_auth)])
 async def create_workflow(body: CreateWorkflowInput) -> JSONResponse:
-    _validate_dag(body.steps)
-    steps = _remap_step_ids(body.steps)
+    _validate_dag(body.nodes)
+    nodes = _remap_node_ids(body.nodes)
 
     schedule_type = body.schedule_type
     if schedule_type != "none":
@@ -208,20 +208,20 @@ async def create_workflow(body: CreateWorkflowInput) -> JSONResponse:
         )
         session.add(workflow)
 
-        for step in steps:
-            ws = WorkflowStep(
-                id=step.id,
+        for node in nodes:
+            wn = WorkflowNode(
+                id=node.id,
                 workflow_id=workflow_id,
-                label=step.label,
-                task_names=json.dumps(step.task_names),
-                args=step.args or "[]",
-                kwargs=step.kwargs or "{}",
-                queue=step.queue or "celery",
-                depends_on=json.dumps(step.depends_on),
-                condition=step.condition,
-                timeout_seconds=step.timeout_seconds,
+                label=node.label,
+                task_name=node.task_name,
+                args=node.args or "[]",
+                kwargs=node.kwargs or "{}",
+                queue=node.queue or "celery",
+                depends_on=json.dumps(node.depends_on),
+                condition=node.condition,
+                timeout_seconds=node.timeout_seconds,
             )
-            session.add(ws)
+            session.add(wn)
 
         await session.commit()
 
@@ -236,7 +236,7 @@ async def get_workflow_run_detail(run_id: str) -> Any:
         result = await session.execute(
             select(WorkflowRun)
             .options(
-                selectinload(WorkflowRun.step_runs).selectinload(StepRun.task_runs)
+                selectinload(WorkflowRun.node_runs)
             )
             .where(WorkflowRun.id == run_id)
             .limit(1)
@@ -268,7 +268,7 @@ async def get_workflow(workflow_id: str) -> Any:
     async with get_session() as session:
         result = await session.execute(
             select(Workflow)
-            .options(selectinload(Workflow.steps))
+            .options(selectinload(Workflow.nodes))
             .where(Workflow.id == workflow_id)
             .limit(1)
         )
@@ -289,7 +289,7 @@ async def update_workflow(
     async with get_session() as session:
         result = await session.execute(
             select(Workflow)
-            .options(selectinload(Workflow.steps))
+            .options(selectinload(Workflow.nodes))
             .where(Workflow.id == workflow_id)
             .limit(1)
         )
@@ -297,19 +297,17 @@ async def update_workflow(
         if not existing:
             raise HTTPException(status_code=404, detail="Workflow not found")
 
-        # Validate and replace steps if provided
-        # Keep typed StepInput objects for DAG validation and persistence.
-        # `model_dump()` turns nested models into dicts.
-        new_steps: list[StepInput] | None = (
-            body.steps if "steps" in body.model_fields_set else None
+        # Validate and replace nodes if provided
+        new_nodes: list[NodeInput] | None = (
+            body.nodes if "nodes" in body.model_fields_set else None
         )
-        if new_steps is not None:
-            if len(new_steps) == 0:
+        if new_nodes is not None:
+            if len(new_nodes) == 0:
                 raise HTTPException(
-                    status_code=400, detail="At least one step is required"
+                    status_code=400, detail="At least one node is required"
                 )
-            _validate_dag(new_steps)
-            new_steps = _remap_step_ids(new_steps)
+            _validate_dag(new_nodes)
+            new_nodes = _remap_node_ids(new_nodes)
 
         schedule_type = updates.get("schedule_type", existing.schedule_type)
         interval_seconds = updates.get("interval_seconds", existing.interval_seconds)
@@ -352,27 +350,25 @@ async def update_workflow(
             update(Workflow).where(Workflow.id == workflow_id).values(**values)
         )
 
-        # Replace steps if provided
-        if new_steps is not None:
+        # Replace nodes if provided
+        if new_nodes is not None:
             await session.execute(
-                delete(WorkflowStep).where(
-                    WorkflowStep.workflow_id == workflow_id
-                )
+                delete(WorkflowNode).where(WorkflowNode.workflow_id == workflow_id)
             )
-            for step in new_steps:
-                ws = WorkflowStep(
-                    id=step.id,
+            for node in new_nodes:
+                wn = WorkflowNode(
+                    id=node.id,
                     workflow_id=workflow_id,
-                    label=step.label,
-                    task_names=json.dumps(step.task_names),
-                    args=step.args or "[]",
-                    kwargs=step.kwargs or "{}",
-                    queue=step.queue or "celery",
-                    depends_on=json.dumps(step.depends_on),
-                    condition=step.condition,
-                    timeout_seconds=step.timeout_seconds,
+                    label=node.label,
+                    task_name=node.task_name,
+                    args=node.args or "[]",
+                    kwargs=node.kwargs or "{}",
+                    queue=node.queue or "celery",
+                    depends_on=json.dumps(node.depends_on),
+                    condition=node.condition,
+                    timeout_seconds=node.timeout_seconds,
                 )
-                session.add(ws)
+                session.add(wn)
 
         await session.commit()
 
@@ -453,7 +449,7 @@ async def duplicate_workflow(
     async with get_session() as session:
         result = await session.execute(
             select(Workflow)
-            .options(selectinload(Workflow.steps))
+            .options(selectinload(Workflow.nodes))
             .where(Workflow.id == workflow_id)
             .limit(1)
         )
@@ -464,9 +460,9 @@ async def duplicate_workflow(
         new_workflow_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
 
-        # Remap step IDs so the copy is fully independent
+        # Remap node IDs so the copy is fully independent
         _id_map: dict[str, str] = _build_step_id_map(
-            [step.id for step in existing.steps]
+            [node.id for node in existing.nodes]
         )
 
         workflow = Workflow(
@@ -485,22 +481,22 @@ async def duplicate_workflow(
         )
         session.add(workflow)
 
-        for step in existing.steps:
-            old_deps: list[str] = json.loads(step.depends_on or "[]")
+        for node in existing.nodes:
+            old_deps: list[str] = json.loads(node.depends_on or "[]")
             new_deps: list[str] = [_id_map.get(d, d) for d in old_deps]
-            ws = WorkflowStep(
-                id=_id_map[step.id],
+            wn = WorkflowNode(
+                id=_id_map[node.id],
                 workflow_id=new_workflow_id,
-                label=step.label,
-                task_names=step.task_names,
-                args=step.args,
-                kwargs=step.kwargs,
-                queue=step.queue,
+                label=node.label,
+                task_name=node.task_name,
+                args=node.args,
+                kwargs=node.kwargs,
+                queue=node.queue,
                 depends_on=json.dumps(new_deps),
-                condition=step.condition,
-                timeout_seconds=step.timeout_seconds,
+                condition=node.condition,
+                timeout_seconds=node.timeout_seconds,
             )
-            session.add(ws)
+            session.add(wn)
 
         await session.commit()
 
