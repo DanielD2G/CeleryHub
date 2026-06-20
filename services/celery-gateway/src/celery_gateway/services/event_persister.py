@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -12,7 +12,7 @@ from ..db import get_session
 from ..db.models import CeleryEvent
 from .event_collector import EVENTS_STREAM_KEY
 from .event_mapper import event_to_row
-from .partitions import ensure_partitions
+from .partitions import create_partition, partition_name
 from .redis_client import get_redis
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ _BACKOFF_BASE = 1.0
 _BACKOFF_MAX = 30.0
 
 _started: bool = False
+_ensured_partitions: set[str] = set()
 
 
 async def _ensure_group(redis: Any) -> None:
@@ -59,16 +60,24 @@ async def _flush_batch(entries: list[tuple[str, dict[str, Any]]]) -> None:
     if not events:
         return
     rows = [event_to_row(e) for e in events]
-    days = {r["event_time"].date() for r in rows}
-    async with get_session() as session:
-        today = datetime.now(timezone.utc).date()
-        await ensure_partitions(session, today)
-        for day in days:
-            await ensure_partitions(session, day, ahead_days=0)
-        stmt = pg_insert(CeleryEvent).values(rows)
-        stmt = stmt.on_conflict_do_nothing(index_elements=["event_uid", "event_time"])
-        await session.execute(stmt)
-        await session.commit()
+    today = datetime.now(timezone.utc).date()
+    needed_days = {r["event_time"].date() for r in rows}
+    needed_days |= {today + timedelta(days=offset) for offset in range(3)}
+    missing = sorted(d for d in needed_days if partition_name(d) not in _ensured_partitions)
+    try:
+        async with get_session() as session:
+            for day in missing:
+                await create_partition(session, day)
+            stmt = pg_insert(CeleryEvent).values(rows)
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=["event_uid", "event_time"]
+            )
+            await session.execute(stmt)
+            await session.commit()
+        _ensured_partitions.update(partition_name(d) for d in missing)
+    except Exception:
+        _ensured_partitions.clear()
+        raise
 
 
 async def _consume_once(redis: Any) -> int:

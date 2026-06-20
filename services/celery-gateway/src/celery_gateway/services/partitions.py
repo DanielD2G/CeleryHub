@@ -39,20 +39,24 @@ def partitions_to_drop(
     return out
 
 
+async def create_partition(session: Any, day: date) -> None:
+    """Issue CREATE TABLE IF NOT EXISTS for one day's partition. Does not commit."""
+    name = partition_name(day)
+    lo, hi = partition_bounds(day)
+    await session.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS {name} "
+            f"PARTITION OF celery_events "
+            f"FOR VALUES FROM ('{lo}') TO ('{hi}');"
+        )
+    )
+
+
 async def ensure_partitions(
     session: Any, today: date, ahead_days: int = 2
 ) -> None:
     for offset in range(0, ahead_days + 1):
-        day = today + timedelta(days=offset)
-        name = partition_name(day)
-        lo, hi = partition_bounds(day)
-        await session.execute(
-            text(
-                f"CREATE TABLE IF NOT EXISTS {name} "
-                f"PARTITION OF celery_events "
-                f"FOR VALUES FROM ('{lo}') TO ('{hi}');"
-            )
-        )
+        await create_partition(session, today + timedelta(days=offset))
     await session.commit()
 
 

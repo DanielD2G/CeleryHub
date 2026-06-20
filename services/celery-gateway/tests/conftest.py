@@ -22,6 +22,19 @@ from tests._db import test_database_url
 
 
 # ---------------------------------------------------------------------------
+# Partition cache reset (prevents cross-test staleness)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clear_partition_cache() -> None:
+    """Clear the process-local partition cache before every test so schema
+    rebuilds performed by db_engine are not masked by a stale in-memory set."""
+    from celery_gateway.services import event_persister
+    event_persister._ensured_partitions.clear()
+
+
+# ---------------------------------------------------------------------------
 # Database fixtures
 # ---------------------------------------------------------------------------
 
