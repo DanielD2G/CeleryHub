@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from "react";
 import dagre from "@dagrejs/dagre";
-import type { WorkflowStep, StepRunDetail } from "@/lib/types";
+import type { WorkflowNode, NodeRun } from "@/lib/types";
 import { WorkflowDagNode } from "./workflow-dag-node";
 import { WorkflowDagEdge } from "./workflow-dag-edge";
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,8 @@ import { Plus, Minus } from "lucide-react";
 import { parseJson } from "@/lib/workflow-utils";
 
 interface WorkflowDagProps {
-  steps: WorkflowStep[];
-  stepRuns?: StepRunDetail[];
+  nodes: WorkflowNode[];
+  nodeRuns?: NodeRun[];
   scheduleType?: string;
 }
 
@@ -65,17 +65,17 @@ function _ZoomControls({
   );
 }
 
-export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps) {
+export function WorkflowDag({ nodes, nodeRuns, scheduleType }: WorkflowDagProps) {
   const [zoom, setZoom] = useState<number>(1);
 
-  const stepRunMap = useMemo(() => {
-    if (!stepRuns) return new Map<string, StepRunDetail>();
-    return new Map(stepRuns.map((sr) => [sr.stepId, sr]));
-  }, [stepRuns]);
+  const nodeRunMap = useMemo(() => {
+    if (!nodeRuns) return new Map<string, NodeRun>();
+    return new Map(nodeRuns.map((nr) => [nr.nodeId, nr]));
+  }, [nodeRuns]);
 
   const hasEdges = useMemo(
-    () => steps.some((s) => parseJson<string[]>(s.dependsOn, []).length > 0),
-    [steps]
+    () => nodes.some((n) => parseJson<string[]>(n.dependsOn, []).length > 0),
+    [nodes]
   );
 
   const layout = useMemo(() => {
@@ -84,23 +84,23 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
     g.setGraph({ rankdir: "LR", ranksep: 80, nodesep: 40 });
     g.setDefaultEdgeLabel(() => ({}));
 
-    for (const step of steps) {
-      g.setNode(step.id, { width: _NODE_WIDTH, height: _NODE_HEIGHT });
+    for (const node of nodes) {
+      g.setNode(node.id, { width: _NODE_WIDTH, height: _NODE_HEIGHT });
     }
-    for (const step of steps) {
-      const deps = parseJson<string[]>(step.dependsOn, []);
+    for (const node of nodes) {
+      const deps = parseJson<string[]>(node.dependsOn, []);
       for (const dep of deps) {
-        g.setEdge(dep, step.id);
+        g.setEdge(dep, node.id);
       }
     }
     dagre.layout(g);
     return g;
-  }, [steps, hasEdges]);
+  }, [nodes, hasEdges]);
 
   // Content size for both modes
   const contentWidth = hasEdges
     ? (layout!.graph().width || 500) + 40 + _LEFT_GUTTER
-    : steps.length * (_NODE_WIDTH + 16) + 16;
+    : nodes.length * (_NODE_WIDTH + 16) + 16;
   const contentHeight = hasEdges
     ? (layout!.graph().height || 200) + 40
     : _NODE_HEIGHT + 20;
@@ -116,30 +116,30 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
 
   const currentZoom = zoom;
 
-  // No edges: independent steps stacked vertically
+  // No edges: independent nodes stacked vertically
   if (!hasEdges) {
     const colGap = 20;
     const nodeX = _LEFT_GUTTER;
-    const colNodes = steps.map((step, index) => {
+    const colNodes = nodes.map((node, index) => {
       const y = 36 + index * (_NODE_HEIGHT + colGap);
-      const stepRun = stepRunMap.get(step.id);
-      return { step, x: nodeX, y, stepRun };
+      const nodeRun = nodeRunMap.get(node.id);
+      return { node, x: nodeX, y, nodeRun };
     });
 
-    const startEdges = colNodes.map(({ step, x, y, stepRun }, index) => ({
-      key: `independent-start-${step.id}`,
+    const startEdges = colNodes.map(({ node, x, y, nodeRun }, index) => ({
+      key: `independent-start-${node.id}`,
       sourceX: x + _LEFT_GUTTER - 110,
       sourceY: y + _NODE_HEIGHT / 2,
       targetX: x + _LEFT_GUTTER,
       targetY: y + _NODE_HEIGHT / 2,
-      status: stepRun?.status,
+      status: nodeRun?.status,
       label: index === 0 ? _rootTriggerLabel(scheduleType) : undefined,
     }));
 
     const stackContentWidth = _LEFT_GUTTER * 2 + _NODE_WIDTH + 24;
     const stackContentHeight = Math.max(
       _NODE_HEIGHT + 72,
-      36 + steps.length * _NODE_HEIGHT + Math.max(0, steps.length - 1) * colGap + 12
+      36 + nodes.length * _NODE_HEIGHT + Math.max(0, nodes.length - 1) * colGap + 12
     );
 
     return (
@@ -170,9 +170,9 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
                   <WorkflowDagEdge key={key} {...edgeProps} />
                 ))}
               </svg>
-              {colNodes.map(({ step, x, y, stepRun }) => (
+              {colNodes.map(({ node, x, y, nodeRun }) => (
                 <div
-                  key={step.id}
+                  key={node.id}
                   style={{
                     position: "absolute",
                     left: x + _LEFT_GUTTER,
@@ -180,9 +180,9 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
                   }}
                 >
                   <WorkflowDagNode
-                    label={step.label}
-                    taskNames={parseJson<string[]>(step.taskNames, [])}
-                    status={stepRun?.status}
+                    label={node.label}
+                    taskName={node.taskName}
+                    status={nodeRun?.status}
                   />
                 </div>
               ))}
@@ -194,37 +194,36 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
   }
 
   // With edges: dagre layout
-  const nodes = steps.map((step) => {
-    const node = layout!.node(step.id);
-    const stepRun = stepRunMap.get(step.id);
-    const taskNames = parseJson<string[]>(step.taskNames, []);
-    const deps = parseJson<string[]>(step.dependsOn, []);
-    return { step, node, stepRun, taskNames, isRoot: deps.length === 0 };
+  const dagNodes = nodes.map((node) => {
+    const dagNode = layout!.node(node.id);
+    const nodeRun = nodeRunMap.get(node.id);
+    const deps = parseJson<string[]>(node.dependsOn, []);
+    return { node, dagNode, nodeRun, isRoot: deps.length === 0 };
   });
 
   const edges = layout!.edges().map((e) => {
     const sourceNode = layout!.node(e.v);
     const targetNode = layout!.node(e.w);
-    const targetStepRun = stepRunMap.get(e.w);
+    const targetNodeRun = nodeRunMap.get(e.w);
     return {
       key: `${e.v}-${e.w}`,
       sourceX: sourceNode.x + _NODE_WIDTH / 2 + _LEFT_GUTTER,
       sourceY: sourceNode.y,
       targetX: targetNode.x - _NODE_WIDTH / 2 + _LEFT_GUTTER,
       targetY: targetNode.y,
-      status: targetStepRun?.status,
+      status: targetNodeRun?.status,
     };
   });
 
-  const startEdges = nodes
+  const startEdges = dagNodes
     .filter((n) => n.isRoot)
-    .map(({ step, node, stepRun }) => ({
-      key: `start-${step.id}`,
-      sourceX: node.x - _NODE_WIDTH / 2 + _LEFT_GUTTER - 110,
-      sourceY: node.y,
-      targetX: node.x - _NODE_WIDTH / 2 + _LEFT_GUTTER,
-      targetY: node.y,
-      status: stepRun?.status,
+    .map(({ node, dagNode, nodeRun }) => ({
+      key: `start-${node.id}`,
+      sourceX: dagNode.x - _NODE_WIDTH / 2 + _LEFT_GUTTER - 110,
+      sourceY: dagNode.y,
+      targetX: dagNode.x - _NODE_WIDTH / 2 + _LEFT_GUTTER,
+      targetY: dagNode.y,
+      status: nodeRun?.status,
       label: _rootTriggerLabel(scheduleType),
     }));
 
@@ -259,19 +258,19 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
                 <WorkflowDagEdge key={key} {...edgeProps} />
               ))}
             </svg>
-            {nodes.map(({ step, node, stepRun, taskNames, isRoot }) => (
+            {dagNodes.map(({ node, dagNode, nodeRun }) => (
               <div
-                key={step.id}
+                key={node.id}
                 style={{
                   position: "absolute",
-                  left: node.x - _NODE_WIDTH / 2 + _LEFT_GUTTER,
-                  top: node.y - _NODE_HEIGHT / 2,
+                  left: dagNode.x - _NODE_WIDTH / 2 + _LEFT_GUTTER,
+                  top: dagNode.y - _NODE_HEIGHT / 2,
                 }}
               >
                 <WorkflowDagNode
-                  label={step.label}
-                  taskNames={taskNames}
-                  status={stepRun?.status}
+                  label={node.label}
+                  taskName={node.taskName}
+                  status={nodeRun?.status}
                 />
               </div>
             ))}

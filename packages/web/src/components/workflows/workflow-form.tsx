@@ -304,8 +304,7 @@ export function WorkflowForm({
         <div className="min-w-0 space-y-2">
           <Label>DAG Preview</Label>
           {previewNodes.length > 0 ? (
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            <WorkflowDag steps={previewNodes as any} scheduleType={scheduleType} />
+            <WorkflowDag nodes={previewNodes} scheduleType={scheduleType} />
           ) : (
             <div className="rounded-lg border bg-muted/30 p-6 text-sm text-muted-foreground">
               Add at least one labeled node to preview the DAG.
