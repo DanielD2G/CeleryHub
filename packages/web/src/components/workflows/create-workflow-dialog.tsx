@@ -7,23 +7,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { WorkflowEditor } from "./workflow-editor";
+import { WorkflowEditor, _toIntervalSeconds } from "./workflow-editor";
 import { apiPost } from "@/lib/api";
 import { Plus } from "lucide-react";
-
-function _toIntervalSeconds(value: string, unit: string): number {
-  const val = parseInt(value, 10) || 0;
-  switch (unit) {
-    case "minutes":
-      return val * 60;
-    case "hours":
-      return val * 3600;
-    case "days":
-      return val * 86400;
-    default:
-      return val;
-  }
-}
 
 export function CreateWorkflowDialog({ onCreated }: { onCreated?: () => void }) {
   const [open, setOpen] = useState(false);

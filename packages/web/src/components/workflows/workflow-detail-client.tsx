@@ -14,26 +14,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { WorkflowEditor, _detectIntervalUnit } from "@/components/workflows/workflow-editor";
+import { WorkflowEditor, _detectIntervalUnit, _toIntervalSeconds } from "@/components/workflows/workflow-editor";
 import { WorkflowRunHistory } from "@/components/workflows/workflow-run-history";
 import { WorkflowCanvas } from "@/components/workflows/workflow-canvas";
 import { formatSchedule } from "@/lib/scheduler/cron";
 import { apiPost, apiPut, apiDelete } from "@/lib/api";
 import { ArrowLeft, Play, Pencil, Trash2, Loader2, Download, Copy } from "lucide-react";
-
-function _toIntervalSeconds(value: string, unit: string): number {
-  const val = parseInt(value, 10) || 0;
-  switch (unit) {
-    case "minutes":
-      return val * 60;
-    case "hours":
-      return val * 3600;
-    case "days":
-      return val * 86400;
-    default:
-      return val;
-  }
-}
 
 function _InfoRow({
   label,

@@ -44,6 +44,20 @@ function _detectIntervalUnit(seconds: number): { value: number; unit: string } {
 
 export { _detectIntervalUnit };
 
+export function _toIntervalSeconds(value: string, unit: string): number {
+  const val = parseInt(value, 10) || 0;
+  switch (unit) {
+    case "minutes":
+      return val * 60;
+    case "hours":
+      return val * 3600;
+    case "days":
+      return val * 86400;
+    default:
+      return val;
+  }
+}
+
 export function WorkflowEditor({
   defaultValues,
   nodes: initialNodes,
