@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from celery_gateway.db.models import NodeRun, Workflow, WorkflowNode, WorkflowRun
 from celery_gateway.services.workflow_engine import (
-    _timeout_tasks,
     on_task_completed,
     start_workflow_run,
 )
@@ -91,12 +90,22 @@ class TestStartWorkflowRun:
         ):
             run_id = await start_workflow_run(wf_id)
 
+        db_session.expire_all()
         result = await db_session.execute(
             select(NodeRun).where(NodeRun.workflow_run_id == run_id)
         )
         node_runs = result.scalars().all()
         # Two nodes → two NodeRuns
         assert len(node_runs) == 2
+
+        # Build dict by node_id for status assertions
+        runs_by_node_id = {nr.node_id: nr for nr in node_runs}
+
+        # Root node (n1) is dispatched → status should be "running"
+        assert runs_by_node_id["n1"].status == "running"
+
+        # Dependent node (n2) is still gated → status should be "pending"
+        assert runs_by_node_id["n2"].status == "pending"
 
     async def test_workflow_run_is_created(
         self, db_session: AsyncSession
