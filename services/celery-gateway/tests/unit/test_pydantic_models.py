@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from celery_gateway.models.workflows import (
     CreateWorkflowInput,
-    StepInput,
+    NodeInput,
     UpdateWorkflowInput,
     WorkflowResponse,
     WorkflowRunResponse,
@@ -116,37 +116,37 @@ class TestCreateWorkflowInput:
             "name": "test",
             "scheduleType": "interval",
             "intervalSeconds": 60,
-            "steps": [
+            "nodes": [
                 {
-                    "id": "s1",
-                    "label": "Step 1",
-                    "taskNames": ["tasks.add"],
+                    "id": "n1",
+                    "label": "Node 1",
+                    "taskName": "tasks.add",
                 }
             ],
         }
         inp = CreateWorkflowInput.model_validate(data)
         assert inp.schedule_type == "interval"
-        assert len(inp.steps) == 1
-        assert inp.steps[0].task_names == ["tasks.add"]
+        assert len(inp.nodes) == 1
+        assert inp.nodes[0].task_name == "tasks.add"
 
     def test_python_field_names(self) -> None:
         inp = CreateWorkflowInput(
             name="test",
             schedule_type="interval",
             interval_seconds=60,
-            steps=[
-                StepInput(id="s1", label="Step 1", task_names=["a"]),
+            nodes=[
+                NodeInput(id="n1", label="Node 1", task_name="a"),
             ],
         )
         assert inp.schedule_type == "interval"
-        assert inp.steps[0].task_names == ["a"]
+        assert inp.nodes[0].task_name == "a"
 
     def test_optional_fields_default_none(self) -> None:
         inp = CreateWorkflowInput(
             name="test",
             schedule_type="cron",
-            steps=[
-                StepInput(id="s1", label="Step 1", task_names=["a"]),
+            nodes=[
+                NodeInput(id="n1", label="Node 1", task_name="a"),
             ],
         )
         assert inp.interval_seconds is None
@@ -157,8 +157,8 @@ class TestCreateWorkflowInput:
     def test_default_schedule_type_none(self) -> None:
         inp = CreateWorkflowInput(
             name="test",
-            steps=[
-                StepInput(id="s1", label="Step 1", task_names=["a"]),
+            nodes=[
+                NodeInput(id="n1", label="Node 1", task_name="a"),
             ],
         )
         assert inp.schedule_type == "none"
@@ -168,14 +168,14 @@ class TestCreateWorkflowInput:
         with pytest.raises(ValidationError):
             CreateWorkflowInput(
                 name="",
-                steps=[
-                    StepInput(id="s1", label="Step 1", task_names=["a"]),
+                nodes=[
+                    NodeInput(id="n1", label="Node 1", task_name="a"),
                 ],
             )
 
-    def test_empty_steps_rejected(self) -> None:
+    def test_empty_nodes_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            CreateWorkflowInput(name="test", steps=[])
+            CreateWorkflowInput(name="test", nodes=[])
 
 
 class TestUpdateWorkflowInput:
@@ -187,15 +187,15 @@ class TestUpdateWorkflowInput:
         assert inp.interval_seconds is None
         assert inp.cron_expression is None
         assert inp.enabled is None
-        assert inp.steps is None
+        assert inp.nodes is None
 
 
 class TestWorkflowResponse:
     def test_from_attributes(self) -> None:
-        class FakeStep:
-            id = "step1"
-            label = "Step 1"
-            task_names = '["add"]'
+        class FakeNode:
+            id = "node1"
+            label = "Node 1"
+            task_name = "add"
             args = "[]"
             kwargs = "{}"
             queue = "celery"
@@ -217,14 +217,14 @@ class TestWorkflowResponse:
             next_run_at = "2025-01-01T00:01:00"
             created_at = "2025-01-01T00:00:00"
             updated_at = "2025-01-01T00:00:00"
-            steps = [FakeStep()]
+            nodes = [FakeNode()]
 
         resp = WorkflowResponse.model_validate(FakeORM(), from_attributes=True)
         assert resp.id == "abc"
         assert resp.total_run_count == 5
         assert resp.interval_seconds == 60
-        assert len(resp.steps) == 1
-        assert resp.steps[0].id == "step1"
+        assert len(resp.nodes) == 1
+        assert resp.nodes[0].id == "node1"
 
 
 class TestWorkflowRunResponse:
