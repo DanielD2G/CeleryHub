@@ -13,12 +13,12 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import {
-  WorkflowStepEditor,
-  stepEditorToApi,
-  type StepEditorState,
-} from "./workflow-step-editor";
+  WorkflowNodeEditor,
+  nodeEditorToApi,
+  type NodeEditorState,
+} from "./workflow-node-editor";
 import { WorkflowDag } from "./workflow-dag";
-import type { WorkflowStep } from "@/lib/types";
+import type { WorkflowNode } from "@/lib/types";
 
 export interface CreateWorkflowInput {
   name: string;
@@ -28,10 +28,10 @@ export interface CreateWorkflowInput {
   cronExpression?: string;
   enabled: boolean;
   maxRunCount: number | null;
-  steps: {
+  nodes: {
     id: string;
     label: string;
-    taskNames: string[];
+    taskName: string;
     args: string;
     kwargs: string;
     queue: string | null;
@@ -50,15 +50,15 @@ interface WorkflowFormProps {
     cronExpression: string;
     enabled: boolean;
     maxRunCount: number | null;
-    steps: StepEditorState[];
+    nodes: NodeEditorState[];
   }>;
   onSubmit: (input: CreateWorkflowInput) => Promise<{ error?: string }>;
   submitLabel?: string;
 }
 
-let _nextStepId = 1;
-function _generateStepId(): string {
-  return `step-${Date.now()}-${_nextStepId++}`;
+let _nextNodeId = 1;
+function _generateNodeId(): string {
+  return `node-${Date.now()}-${_nextNodeId++}`;
 }
 
 function _detectIntervalUnit(seconds: number): { value: number; unit: string } {
@@ -94,8 +94,8 @@ export function WorkflowForm({
   const [maxRunCount, setMaxRunCount] = useState(
     initialValues?.maxRunCount != null ? String(initialValues.maxRunCount) : ""
   );
-  const [steps, setSteps] = useState<StepEditorState[]>(
-    initialValues?.steps || []
+  const [nodes, setNodes] = useState<NodeEditorState[]>(
+    initialValues?.nodes || []
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,13 +114,13 @@ export function WorkflowForm({
     }
   };
 
-  const addStep = () => {
-    setSteps([
-      ...steps,
+  const addNode = () => {
+    setNodes([
+      ...nodes,
       {
-        id: _generateStepId(),
+        id: _generateNodeId(),
         label: "",
-        taskNames: [],
+        taskName: "",
         dependsOn: [],
         condition: "all_succeeded",
         queue: "celery",
@@ -131,18 +131,18 @@ export function WorkflowForm({
     ]);
   };
 
-  const updateStep = (index: number, updated: StepEditorState) => {
-    setSteps(steps.map((s, i) => (i === index ? updated : s)));
+  const updateNode = (index: number, updated: NodeEditorState) => {
+    setNodes(nodes.map((n, i) => (i === index ? updated : n)));
   };
 
-  const removeStep = (index: number) => {
-    const removedId = steps[index].id;
-    setSteps(
-      steps
+  const removeNode = (index: number) => {
+    const removedId = nodes[index].id;
+    setNodes(
+      nodes
         .filter((_, i) => i !== index)
-        .map((s) => ({
-          ...s,
-          dependsOn: s.dependsOn.filter((d) => d !== removedId),
+        .map((n) => ({
+          ...n,
+          dependsOn: n.dependsOn.filter((d) => d !== removedId),
         }))
     );
   };
@@ -162,7 +162,7 @@ export function WorkflowForm({
         scheduleType === "cron" ? cronExpression : undefined,
       enabled,
       maxRunCount: maxRunCount ? parseInt(maxRunCount, 10) : null,
-      steps: steps.map(stepEditorToApi),
+      nodes: nodes.map(nodeEditorToApi),
     };
 
     try {
@@ -177,18 +177,18 @@ export function WorkflowForm({
     }
   };
 
-  // Build preview steps for the DAG
-  const previewSteps: WorkflowStep[] = steps
-    .filter((s) => s.label)
-    .map((s) => ({
-      id: s.id,
-      label: s.label,
-      taskNames: JSON.stringify(s.taskNames),
+  // Build preview nodes for the DAG
+  const previewNodes: WorkflowNode[] = nodes
+    .filter((n) => n.label)
+    .map((n) => ({
+      id: n.id,
+      label: n.label,
+      taskName: n.taskName,
       args: null,
       kwargs: null,
-      queue: s.queue || null,
-      dependsOn: JSON.stringify(s.dependsOn),
-      condition: s.condition,
+      queue: n.queue || null,
+      dependsOn: JSON.stringify(n.dependsOn),
+      condition: n.condition,
       timeoutSeconds: null,
     }));
 
@@ -293,7 +293,7 @@ export function WorkflowForm({
 
           <Button
             type="submit"
-            disabled={submitting || !name || steps.length === 0}
+            disabled={submitting || !name || nodes.length === 0}
             className="w-full"
           >
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -303,11 +303,12 @@ export function WorkflowForm({
 
         <div className="min-w-0 space-y-2">
           <Label>DAG Preview</Label>
-          {previewSteps.length > 0 ? (
-            <WorkflowDag steps={previewSteps} scheduleType={scheduleType} />
+          {previewNodes.length > 0 ? (
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            <WorkflowDag steps={previewNodes as any} scheduleType={scheduleType} />
           ) : (
             <div className="rounded-lg border bg-muted/30 p-6 text-sm text-muted-foreground">
-              Add at least one labeled step to preview the DAG.
+              Add at least one labeled node to preview the DAG.
             </div>
           )}
         </div>
@@ -315,38 +316,38 @@ export function WorkflowForm({
 
       <div className="space-y-3">
         <div className="flex items-center justify-between pb-2">
-          <Label>Steps ({steps.length})</Label>
-          <Button type="button" variant="outline" size="sm" onClick={addStep}>
+          <Label>Nodes ({nodes.length})</Label>
+          <Button type="button" variant="outline" size="sm" onClick={addNode}>
             <Plus className="mr-1.5 h-3 w-3" />
-            Add Step
+            Add Node
           </Button>
         </div>
 
-        {steps.length === 0 && (
+        {nodes.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Add at least one step to the workflow
+            Add at least one node to the workflow
           </p>
         )}
 
-        {steps.map((step, i) => (
-          <div key={step.id} className="relative">
+        {nodes.map((node, i) => (
+          <div key={node.id} className="relative">
             <div className="absolute -top-1 -right-1 z-10">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                onClick={() => removeStep(i)}
+                onClick={() => removeNode(i)}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <WorkflowStepEditor
-              step={step}
-              onChange={(updated) => updateStep(i, updated)}
-              otherSteps={steps
+            <WorkflowNodeEditor
+              step={node}
+              onChange={(updated) => updateNode(i, updated)}
+              otherNodes={nodes
                 .filter((_, idx) => idx !== i)
-                .map((s) => ({ id: s.id, label: s.label || `Step ${steps.indexOf(s) + 1}` }))}
+                .map((n) => ({ id: n.id, label: n.label || `Node ${nodes.indexOf(n) + 1}` }))}
             />
           </div>
         ))}

@@ -32,6 +32,35 @@ export function ImportWorkflowDialog({ onImported }: { onImported?: () => void }
       return;
     }
 
+    const obj = parsed as Record<string, unknown>;
+
+    // Reject old steps/taskNames format
+    if ("steps" in obj) {
+      setError(
+        'This JSON uses the old "steps" format and cannot be imported. ' +
+          'Please export it from a CeleryHub instance that uses the current "nodes" format.'
+      );
+      return;
+    }
+    if (
+      Array.isArray(obj.nodes) &&
+      obj.nodes.length > 0 &&
+      typeof (obj.nodes as Record<string, unknown>[])[0] === "object" &&
+      "taskNames" in ((obj.nodes as Record<string, unknown>[])[0] as object)
+    ) {
+      setError(
+        'This JSON uses the old "taskNames" format per node and cannot be imported. ' +
+          'Please export it from a CeleryHub instance that uses the current "taskName" (single) format.'
+      );
+      return;
+    }
+
+    // Require nodes array
+    if (!Array.isArray(obj.nodes)) {
+      setError('Invalid workflow format: expected a "nodes" array.');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const result = await apiPost<{ id?: string; error?: string }>(
@@ -79,7 +108,7 @@ export function ImportWorkflowDialog({ onImported }: { onImported?: () => void }
         <textarea
           value={json}
           onChange={(e) => setJson(e.target.value)}
-          placeholder='{"name": "My Workflow", "scheduleType": "none", "steps": [...]}'
+          placeholder='{"name": "My Workflow", "scheduleType": "none", "nodes": [...]}'
           className="min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           rows={10}
         />
