@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { RotateCw, Loader2, CheckCircle } from "lucide-react";
 
 function formatJson(value: string | undefined): string {
@@ -77,7 +76,7 @@ export function TaskDetailDialog({
         onOpenChange(v);
       }}
     >
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {task.name ? (
@@ -129,42 +128,42 @@ export function TaskDetailDialog({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="mb-1 text-sm text-muted-foreground">Args</p>
-                <ScrollArea className="max-h-32 rounded-md border bg-muted p-3">
-                  <pre className="text-xs whitespace-pre-wrap">
+                <div className="max-h-32 overflow-auto rounded-md border bg-muted p-3">
+                  <pre className="text-xs whitespace-pre-wrap break-words">
                     {formatJson(task.args)}
                   </pre>
-                </ScrollArea>
+                </div>
               </div>
               <div>
                 <p className="mb-1 text-sm text-muted-foreground">Kwargs</p>
-                <ScrollArea className="max-h-32 rounded-md border bg-muted p-3">
-                  <pre className="text-xs whitespace-pre-wrap">
+                <div className="max-h-32 overflow-auto rounded-md border bg-muted p-3">
+                  <pre className="text-xs whitespace-pre-wrap break-words">
                     {formatJson(task.kwargs)}
                   </pre>
-                </ScrollArea>
+                </div>
               </div>
             </div>
           )}
 
           <div>
             <p className="mb-1 text-sm text-muted-foreground">Result</p>
-            <ScrollArea className="max-h-48 rounded-md border bg-muted p-3">
-              <pre className="text-xs whitespace-pre-wrap">
+            <div className="max-h-48 overflow-auto rounded-md border bg-muted p-3">
+              <pre className="text-xs whitespace-pre-wrap break-words">
                 {task.result != null
                   ? JSON.stringify(task.result, null, 2)
                   : "null"}
               </pre>
-            </ScrollArea>
+            </div>
           </div>
 
           {task.traceback && (
             <div>
               <p className="mb-1 text-sm text-destructive">Traceback</p>
-              <ScrollArea className="max-h-64 rounded-md border border-destructive/20 bg-destructive/5 p-3">
-                <pre className="text-xs whitespace-pre-wrap">
+              <div className="max-h-64 overflow-auto rounded-md border border-destructive/20 bg-destructive/5 p-3">
+                <pre className="text-xs whitespace-pre-wrap break-words">
                   {task.traceback}
                 </pre>
-              </ScrollArea>
+              </div>
             </div>
           )}
 

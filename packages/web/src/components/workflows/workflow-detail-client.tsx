@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { WorkflowEditor, _detectIntervalUnit } from "@/components/workflows/workflow-editor";
 import { WorkflowRunHistory } from "@/components/workflows/workflow-run-history";
-import { WorkflowDag } from "@/components/workflows/workflow-dag";
+import { WorkflowCanvas } from "@/components/workflows/workflow-canvas";
 import { formatSchedule } from "@/lib/scheduler/cron";
 import { apiPost, apiPut, apiDelete } from "@/lib/api";
 import { ArrowLeft, Play, Pencil, Trash2, Loader2, Download, Copy } from "lucide-react";
@@ -433,8 +433,8 @@ export function WorkflowDetailClient({
 
       {workflow.nodes.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-lg font-semibold">Workflow DAG</h3>
-          <WorkflowDag nodes={workflow.nodes} scheduleType={workflow.scheduleType} />
+          <h3 className="text-lg font-semibold">Workflow Canvas</h3>
+          <WorkflowCanvas nodes={workflow.nodes} readOnly />
         </div>
       )}
 

@@ -14,7 +14,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { WorkflowDag } from "@/components/workflows/workflow-dag";
+import { WorkflowCanvas } from "@/components/workflows/workflow-canvas";
+import { NodeRunDrawer } from "@/components/workflows/node-run-drawer";
 import { ArrowLeft, XCircle } from "lucide-react";
 import {
   formatWorkflowDate,
@@ -30,6 +31,7 @@ export default function WorkflowRunPage() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   useDocumentTitle(run ? `Run ${run.id.slice(0, 8)}` : "Run Detail");
 
   const fetchData = useCallback(() => {
@@ -129,10 +131,15 @@ export default function WorkflowRunPage() {
       {workflow && workflow.nodes.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-lg font-semibold">Pipeline</h3>
-          <WorkflowDag
+          <WorkflowCanvas
             nodes={workflow.nodes}
-            nodeRuns={run.nodeRuns}
-            scheduleType={workflow.scheduleType}
+            runs={run.nodeRuns}
+            readOnly
+            onSelectNode={setSelectedNodeId}
+          />
+          <NodeRunDrawer
+            run={selectedNodeId ? (run.nodeRuns.find((r) => r.nodeId === selectedNodeId) ?? null) : null}
+            onClose={() => setSelectedNodeId(null)}
           />
         </div>
       )}
