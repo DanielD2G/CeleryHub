@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,54 +11,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Trash2 } from "lucide-react";
-import {
-  WorkflowNodeEditor,
-  nodeEditorToApi,
-  type NodeEditorState,
-} from "./workflow-node-editor";
-import { WorkflowDag } from "./workflow-dag";
+import { Loader2, Plus, LayoutGrid } from "lucide-react";
 import type { WorkflowNode } from "@/lib/types";
+import { WorkflowCanvas } from "./workflow-canvas";
+import { NodeConfigDrawer } from "./node-config-drawer";
+import { nodesToFlow, autoLayout } from "@/lib/workflow-graph";
 
-export interface CreateWorkflowInput {
+export interface WorkflowFormValues {
   name: string;
-  description: string | null;
-  scheduleType: string;
-  intervalSeconds?: number;
-  cronExpression?: string;
+  description: string;
+  scheduleType: "none" | "interval" | "cron";
+  intervalValue: string;
+  intervalUnit: string;
+  cronExpression: string;
   enabled: boolean;
-  maxRunCount: number | null;
-  nodes: {
-    id: string;
-    label: string;
-    taskName: string;
-    args: string;
-    kwargs: string;
-    queue: string | null;
-    dependsOn: string[];
-    condition: string;
-    timeoutSeconds: number | null;
-  }[];
+  maxRunCount: string;
 }
 
-interface WorkflowFormProps {
-  initialValues?: Partial<{
-    name: string;
-    description: string | null;
-    scheduleType: string;
-    intervalSeconds: number;
-    cronExpression: string;
-    enabled: boolean;
-    maxRunCount: number | null;
-    nodes: NodeEditorState[];
-  }>;
-  onSubmit: (input: CreateWorkflowInput) => Promise<{ error?: string }>;
+export interface WorkflowEditorProps {
+  defaultValues?: Partial<WorkflowFormValues>;
+  nodes?: WorkflowNode[];
+  onSubmit: (values: WorkflowFormValues, nodes: WorkflowNode[]) => Promise<void>;
   submitLabel?: string;
-}
-
-let _nextNodeId = 1;
-function _generateNodeId(): string {
-  return `node-${Date.now()}-${_nextNodeId++}`;
 }
 
 function _detectIntervalUnit(seconds: number): { value: number; unit: string } {
@@ -68,133 +42,119 @@ function _detectIntervalUnit(seconds: number): { value: number; unit: string } {
   return { value: seconds, unit: "seconds" };
 }
 
-export function WorkflowForm({
-  initialValues,
+export { _detectIntervalUnit };
+
+export function WorkflowEditor({
+  defaultValues,
+  nodes: initialNodes,
   onSubmit,
   submitLabel = "Create Workflow",
-}: WorkflowFormProps) {
-  const [name, setName] = useState(initialValues?.name || "");
-  const [description, setDescription] = useState(initialValues?.description || "");
+}: WorkflowEditorProps) {
+  const [name, setName] = useState(defaultValues?.name ?? "");
+  const [description, setDescription] = useState(defaultValues?.description ?? "");
   const [scheduleType, setScheduleType] = useState<"none" | "interval" | "cron">(
-    (initialValues?.scheduleType as "none" | "interval" | "cron") || "none"
+    defaultValues?.scheduleType ?? "none",
   );
-  const { value: _detectedValue, unit: _detectedUnit } = _detectIntervalUnit(
-    initialValues?.intervalSeconds ?? 0
-  );
-  const [intervalValue, setIntervalValue] = useState(
-    initialValues?.intervalSeconds ? String(_detectedValue) : "10"
-  );
-  const [intervalUnit, setIntervalUnit] = useState(
-    initialValues?.intervalSeconds ? _detectedUnit : "seconds"
-  );
+  const [intervalValue, setIntervalValue] = useState(defaultValues?.intervalValue ?? "10");
+  const [intervalUnit, setIntervalUnit] = useState(defaultValues?.intervalUnit ?? "seconds");
   const [cronExpression, setCronExpression] = useState(
-    initialValues?.cronExpression || "* * * * *"
+    defaultValues?.cronExpression ?? "* * * * *",
   );
-  const [enabled, setEnabled] = useState(initialValues?.enabled !== false);
-  const [maxRunCount, setMaxRunCount] = useState(
-    initialValues?.maxRunCount != null ? String(initialValues.maxRunCount) : ""
-  );
-  const [nodes, setNodes] = useState<NodeEditorState[]>(
-    initialValues?.nodes || []
-  );
+  const [enabled, setEnabled] = useState(defaultValues?.enabled !== false);
+  const [maxRunCount, setMaxRunCount] = useState(defaultValues?.maxRunCount ?? "");
+  const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes ?? []);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const getIntervalSeconds = (): number => {
-    const val = parseInt(intervalValue, 10) || 0;
-    switch (intervalUnit) {
-      case "minutes":
-        return val * 60;
-      case "hours":
-        return val * 3600;
-      case "days":
-        return val * 86400;
-      default:
-        return val;
-    }
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
+
+  const handleAddNode = () => {
+    const newNode: WorkflowNode = {
+      id: crypto.randomUUID(),
+      label: `Task ${nodes.length + 1}`,
+      taskName: "",
+      args: "[]",
+      kwargs: "{}",
+      queue: null,
+      dependsOn: "[]",
+      condition: "all_succeeded",
+      timeoutSeconds: null,
+      positionX: null,
+      positionY: null,
+      position: { x: 250, y: 200 },
+    };
+    setNodes((prev) => [...prev, newNode]);
   };
 
-  const addNode = () => {
-    setNodes([
-      ...nodes,
-      {
-        id: _generateNodeId(),
-        label: "",
+  const handleAutoLayout = () => {
+    const { flowNodes, flowEdges } = nodesToFlow(nodes);
+    const laid = autoLayout(flowNodes, flowEdges);
+    const posMap = new Map(laid.map((n) => [n.id, n.position]));
+    setNodes(nodes.map((n) => ({ ...n, position: posMap.get(n.id) ?? n.position })));
+  };
+
+  const handleInsertNode = useCallback(
+    (edgeId: string) => {
+      const [source, target] = edgeId.split("->");
+      const newNode: WorkflowNode = {
+        id: crypto.randomUUID(),
+        label: `Task ${nodes.length + 1}`,
         taskName: "",
-        dependsOn: [],
+        args: "[]",
+        kwargs: "{}",
+        queue: null,
+        dependsOn: JSON.stringify([source]),
         condition: "all_succeeded",
-        queue: "celery",
-        argItems: [],
-        kwargPairs: [],
         timeoutSeconds: null,
-      },
-    ]);
-  };
-
-  const updateNode = (index: number, updated: NodeEditorState) => {
-    setNodes(nodes.map((n, i) => (i === index ? updated : n)));
-  };
-
-  const removeNode = (index: number) => {
-    const removedId = nodes[index].id;
-    setNodes(
-      nodes
-        .filter((_, i) => i !== index)
-        .map((n) => ({
-          ...n,
-          dependsOn: n.dependsOn.filter((d) => d !== removedId),
-        }))
-    );
-  };
+        positionX: null,
+        positionY: null,
+        position: { x: 250, y: 200 },
+      };
+      setNodes((prev) => [
+        ...prev.map((n) => {
+          if (n.id !== target) return n;
+          const deps: string[] = JSON.parse(n.dependsOn);
+          return {
+            ...n,
+            dependsOn: JSON.stringify(deps.map((d) => (d === source ? newNode.id : d))),
+          };
+        }),
+        newNode,
+      ]);
+    },
+    [nodes.length],
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
-
-    const input: CreateWorkflowInput = {
-      name,
-      description: description || null,
-      scheduleType,
-      intervalSeconds:
-        scheduleType === "interval" ? getIntervalSeconds() : undefined,
-      cronExpression:
-        scheduleType === "cron" ? cronExpression : undefined,
-      enabled,
-      maxRunCount: maxRunCount ? parseInt(maxRunCount, 10) : null,
-      nodes: nodes.map(nodeEditorToApi),
-    };
-
     try {
-      const result = await onSubmit(input);
-      if (result.error) {
-        setError(result.error);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      await onSubmit(
+        {
+          name,
+          description,
+          scheduleType,
+          intervalValue,
+          intervalUnit,
+          cronExpression,
+          enabled,
+          maxRunCount,
+        },
+        nodes,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Build preview nodes for the DAG
-  const previewNodes: WorkflowNode[] = nodes
-    .filter((n) => n.label)
-    .map((n) => ({
-      id: n.id,
-      label: n.label,
-      taskName: n.taskName,
-      args: null,
-      kwargs: null,
-      queue: n.queue || null,
-      dependsOn: JSON.stringify(n.dependsOn),
-      condition: n.condition,
-      timeoutSeconds: null,
-    }));
-
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid gap-6 xl:grid-cols-[minmax(320px,1fr)_minmax(0,2fr)]">
+        {/* Left column: workflow-level fields */}
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="wf-name">Workflow Name</Label>
@@ -301,56 +261,56 @@ export function WorkflowForm({
           </Button>
         </div>
 
+        {/* Right column: canvas + toolbar */}
         <div className="min-w-0 space-y-2">
-          <Label>DAG Preview</Label>
-          {previewNodes.length > 0 ? (
-            <WorkflowDag nodes={previewNodes} scheduleType={scheduleType} />
-          ) : (
-            <div className="rounded-lg border bg-muted/30 p-6 text-sm text-muted-foreground">
-              Add at least one labeled node to preview the DAG.
+          <div className="flex items-center justify-between">
+            <Label>Canvas ({nodes.length} node{nodes.length !== 1 ? "s" : ""})</Label>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={handleAddNode}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Tarea
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAutoLayout}
+                disabled={nodes.length === 0}
+              >
+                <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
+                Auto-ordenar
+              </Button>
             </div>
+          </div>
+
+          {nodes.length === 0 ? (
+            <div className="flex h-[560px] items-center justify-center rounded-md border bg-muted/30 text-sm text-muted-foreground">
+              Click &quot;+ Tarea&quot; to add your first node
+            </div>
+          ) : (
+            <WorkflowCanvas
+              nodes={nodes}
+              onChange={(updated) => setNodes(updated)}
+              onSelectNode={(id) => setSelectedNodeId(id)}
+              onInsertNode={handleInsertNode}
+            />
           )}
         </div>
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between pb-2">
-          <Label>Nodes ({nodes.length})</Label>
-          <Button type="button" variant="outline" size="sm" onClick={addNode}>
-            <Plus className="mr-1.5 h-3 w-3" />
-            Add Node
-          </Button>
-        </div>
-
-        {nodes.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Add at least one node to the workflow
-          </p>
-        )}
-
-        {nodes.map((node, i) => (
-          <div key={node.id} className="relative">
-            <div className="absolute -top-1 -right-1 z-10">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                onClick={() => removeNode(i)}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <WorkflowNodeEditor
-              step={node}
-              onChange={(updated) => updateNode(i, updated)}
-              otherNodes={nodes
-                .filter((_, idx) => idx !== i)
-                .map((n) => ({ id: n.id, label: n.label || `Node ${nodes.indexOf(n) + 1}` }))}
-            />
-          </div>
-        ))}
-      </div>
+      {/* Node config drawer — rendered outside the grid so it slides over everything */}
+      {selectedNode && (
+        <NodeConfigDrawer
+          node={selectedNode}
+          otherNodeIds={nodes
+            .filter((n) => n.id !== selectedNodeId)
+            .map((n) => ({ id: n.id, label: n.label || n.id }))}
+          onChange={(updated) =>
+            setNodes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
+          }
+          onClose={() => setSelectedNodeId(null)}
+        />
+      )}
     </form>
   );
 }

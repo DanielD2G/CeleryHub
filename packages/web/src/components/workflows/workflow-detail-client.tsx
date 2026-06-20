@@ -14,16 +14,26 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  WorkflowForm,
-  type CreateWorkflowInput,
-} from "@/components/workflows/workflow-form";
-import { apiToNodeEditor } from "@/components/workflows/workflow-node-editor";
+import { WorkflowEditor, _detectIntervalUnit } from "@/components/workflows/workflow-editor";
 import { WorkflowRunHistory } from "@/components/workflows/workflow-run-history";
 import { WorkflowDag } from "@/components/workflows/workflow-dag";
 import { formatSchedule } from "@/lib/scheduler/cron";
 import { apiPost, apiPut, apiDelete } from "@/lib/api";
 import { ArrowLeft, Play, Pencil, Trash2, Loader2, Download, Copy } from "lucide-react";
+
+function _toIntervalSeconds(value: string, unit: string): number {
+  const val = parseInt(value, 10) || 0;
+  switch (unit) {
+    case "minutes":
+      return val * 60;
+    case "hours":
+      return val * 3600;
+    case "days":
+      return val * 86400;
+    default:
+      return val;
+  }
+}
 
 function _InfoRow({
   label,
@@ -195,33 +205,57 @@ export function WorkflowDetailClient({
               <DialogHeader>
                 <DialogTitle>Edit Workflow</DialogTitle>
               </DialogHeader>
-              <WorkflowForm
-                initialValues={{
+              <WorkflowEditor
+                defaultValues={{
                   name: workflow.name,
-                  description: workflow.description,
-                  scheduleType: workflow.scheduleType,
-                  intervalSeconds: workflow.intervalSeconds ?? undefined,
-                  cronExpression: workflow.cronExpression ?? undefined,
+                  description: workflow.description ?? "",
+                  scheduleType: workflow.scheduleType as "none" | "interval" | "cron",
+                  intervalValue: workflow.intervalSeconds
+                    ? String(_detectIntervalUnit(workflow.intervalSeconds).value)
+                    : "10",
+                  intervalUnit: workflow.intervalSeconds
+                    ? _detectIntervalUnit(workflow.intervalSeconds).unit
+                    : "seconds",
+                  cronExpression: workflow.cronExpression ?? "* * * * *",
                   enabled: workflow.enabled,
-                  maxRunCount: workflow.maxRunCount,
-                  nodes: workflow.nodes.map(apiToNodeEditor),
+                  maxRunCount: workflow.maxRunCount != null ? String(workflow.maxRunCount) : "",
                 }}
-                onSubmit={async (input: CreateWorkflowInput) => {
-                  try {
-                    const result = await apiPut<{ error?: string }>(
-                      `/api/workflows/${workflow.id}`,
-                      input
-                    );
-                    if (!result.error) {
-                      setEditOpen(false);
-                      onRefresh?.();
-                    }
-                    return result;
-                  } catch (e) {
-                    return {
-                      error: e instanceof Error ? e.message : "Failed to update",
-                    };
-                  }
+                nodes={workflow.nodes}
+                onSubmit={async (values, nodes) => {
+                  const intervalSeconds =
+                    values.scheduleType === "interval"
+                      ? _toIntervalSeconds(values.intervalValue, values.intervalUnit)
+                      : undefined;
+                  const payload = {
+                    name: values.name,
+                    description: values.description || null,
+                    scheduleType: values.scheduleType,
+                    intervalSeconds,
+                    cronExpression:
+                      values.scheduleType === "cron" ? values.cronExpression : undefined,
+                    enabled: values.enabled,
+                    maxRunCount: values.maxRunCount ? parseInt(values.maxRunCount, 10) : null,
+                    nodes: nodes.map((n) => ({
+                      id: n.id,
+                      label: n.label,
+                      taskName: n.taskName,
+                      args: n.args ?? "[]",
+                      kwargs: n.kwargs ?? "{}",
+                      queue: n.queue,
+                      dependsOn: JSON.parse(n.dependsOn),
+                      condition: n.condition,
+                      timeoutSeconds: n.timeoutSeconds,
+                      positionX: n.position?.x ?? n.positionX ?? null,
+                      positionY: n.position?.y ?? n.positionY ?? null,
+                    })),
+                  };
+                  const result = await apiPut<{ error?: string }>(
+                    `/api/workflows/${workflow.id}`,
+                    payload,
+                  );
+                  if (result.error) throw new Error(result.error);
+                  setEditOpen(false);
+                  onRefresh?.();
                 }}
                 submitLabel="Save Changes"
               />

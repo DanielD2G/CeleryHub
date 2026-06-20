@@ -7,9 +7,23 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { WorkflowForm } from "./workflow-form";
+import { WorkflowEditor } from "./workflow-editor";
 import { apiPost } from "@/lib/api";
 import { Plus } from "lucide-react";
+
+function _toIntervalSeconds(value: string, unit: string): number {
+  const val = parseInt(value, 10) || 0;
+  switch (unit) {
+    case "minutes":
+      return val * 60;
+    case "hours":
+      return val * 3600;
+    case "days":
+      return val * 86400;
+    default:
+      return val;
+  }
+}
 
 export function CreateWorkflowDialog({ onCreated }: { onCreated?: () => void }) {
   const [open, setOpen] = useState(false);
@@ -26,23 +40,44 @@ export function CreateWorkflowDialog({ onCreated }: { onCreated?: () => void }) 
         <DialogHeader>
           <DialogTitle>Create Workflow</DialogTitle>
         </DialogHeader>
-        <WorkflowForm
-          onSubmit={async (input) => {
-            try {
-              const result = await apiPost<{ id?: string; error?: string }>(
-                "/api/workflows",
-                input
-              );
-              if (!result.error && result.id) {
-                setOpen(false);
-                onCreated?.();
-              }
-              return result;
-            } catch (e) {
-              return {
-                error: e instanceof Error ? e.message : "Failed to create",
-              };
+        <WorkflowEditor
+          onSubmit={async (values, nodes) => {
+            const intervalSeconds =
+              values.scheduleType === "interval"
+                ? _toIntervalSeconds(values.intervalValue, values.intervalUnit)
+                : undefined;
+            const payload = {
+              name: values.name,
+              description: values.description || null,
+              scheduleType: values.scheduleType,
+              intervalSeconds,
+              cronExpression:
+                values.scheduleType === "cron" ? values.cronExpression : undefined,
+              enabled: values.enabled,
+              maxRunCount: values.maxRunCount ? parseInt(values.maxRunCount, 10) : null,
+              nodes: nodes.map((n) => ({
+                id: n.id,
+                label: n.label,
+                taskName: n.taskName,
+                args: n.args ?? "[]",
+                kwargs: n.kwargs ?? "{}",
+                queue: n.queue,
+                dependsOn: JSON.parse(n.dependsOn),
+                condition: n.condition,
+                timeoutSeconds: n.timeoutSeconds,
+                positionX: n.position?.x ?? n.positionX ?? null,
+                positionY: n.position?.y ?? n.positionY ?? null,
+              })),
+            };
+            const result = await apiPost<{ id?: string; error?: string }>(
+              "/api/workflows",
+              payload,
+            );
+            if (!result.error && result.id) {
+              setOpen(false);
+              onCreated?.();
             }
+            if (result.error) throw new Error(result.error);
           }}
         />
       </DialogContent>
