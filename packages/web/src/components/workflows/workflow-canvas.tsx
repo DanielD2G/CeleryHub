@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -45,14 +45,17 @@ export function flowToWorkflowNodes(
     list.push(e.source);
     depsByTarget.set(e.target, list);
   }
-  return flowNodes.map((n) => {
-    const baseNode = base.find((b) => b.id === n.id)!;
-    return {
+  const result: WorkflowNode[] = [];
+  for (const n of flowNodes) {
+    const baseNode = base.find((b) => b.id === n.id);
+    if (!baseNode) continue; // skip flow nodes with no matching base node
+    result.push({
       ...baseNode,
       position: { x: n.position.x, y: n.position.y },
       dependsOn: JSON.stringify(depsByTarget.get(n.id) ?? []),
-    };
-  });
+    });
+  }
+  return result;
 }
 
 function _Inner(props: WorkflowCanvasProps) {
@@ -73,6 +76,70 @@ function _Inner(props: WorkflowCanvasProps) {
       data: readOnly ? {} : { onInsert: onInsertNode },
     })),
   );
+
+  /** Reconcile flow state when props.nodes or props.runs change. */
+  useEffect(() => {
+    const desired = nodesToFlow(props.nodes, props.runs);
+
+    // Sync nodes: keep user-dragged positions, update data, add new, drop removed.
+    setNodes((prev) => {
+      const desiredIds = new Set(desired.flowNodes.map((n) => n.id));
+      const prevById = new Map(prev.map((n) => [n.id, n]));
+      let changed = false;
+
+      const next: Node[] = [];
+      for (const dn of desired.flowNodes) {
+        const existing = prevById.get(dn.id);
+        if (existing) {
+          // Keep position; update data (label, taskName, status, etc.)
+          const merged: Node = {
+            ...existing,
+            data: dn.data,
+            type: "canvas" as const,
+          };
+          // Only push a new object if something actually changed
+          if (
+            merged.data !== existing.data ||
+            merged.type !== existing.type
+          ) {
+            changed = true;
+            next.push(merged);
+          } else {
+            next.push(existing);
+          }
+        } else {
+          // Brand-new node from props
+          changed = true;
+          next.push({ ...dn, type: "canvas" as const });
+        }
+      }
+
+      // Check if any prev nodes were dropped
+      if (!changed && prev.some((n) => !desiredIds.has(n.id))) {
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+
+    // Sync edges: fully determined by dependsOn so straight rebuild is fine.
+    setEdges((prev) => {
+      const next: Edge[] = desired.flowEdges.map((e) => ({
+        ...e,
+        type: "canvas" as const,
+        data: readOnly ? {} : { onInsert: onInsertNode },
+      }));
+
+      // Bail if nothing changed (same count, same ids)
+      if (
+        next.length === prev.length &&
+        next.every((e, i) => e.id === prev[i]?.id)
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [props.nodes, props.runs, readOnly, onInsertNode, setNodes, setEdges]);
 
   /** Emit onChange with the latest ns/es. Avoids stale closure issues. */
   const emit = useCallback(
