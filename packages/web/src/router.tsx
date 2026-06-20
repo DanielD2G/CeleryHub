@@ -12,6 +12,11 @@ const QueuesPage = lazy(() => import("./pages/QueuesPage"));
 const WorkflowsPage = lazy(() => import("./pages/WorkflowsPage"));
 const WorkflowDetailPage = lazy(() => import("./pages/WorkflowDetailPage"));
 const WorkflowRunPage = lazy(() => import("./pages/WorkflowRunPage"));
+const WorkflowEditorPage = lazy(() =>
+  import("./pages/WorkflowEditorPage").then((m) => ({
+    default: m.WorkflowEditorPage,
+  }))
+);
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
 export function AppRoutes() {
@@ -33,7 +38,9 @@ export function AppRoutes() {
         <Route path="/workers" element={<WorkersPage />} />
         <Route path="/queues" element={<QueuesPage />} />
         <Route path="/workflows" element={<WorkflowsPage />} />
+        <Route path="/workflows/new" element={<WorkflowEditorPage />} />
         <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
+        <Route path="/workflows/:id/edit" element={<WorkflowEditorPage />} />
         <Route path="/workflows/:id/runs/:runId" element={<WorkflowRunPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
