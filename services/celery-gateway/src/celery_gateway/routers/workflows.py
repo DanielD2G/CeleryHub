@@ -115,14 +115,14 @@ def _validate_schedule_fields(
 # ---------------------------------------------------------------------------
 
 
-def _build_step_id_map(step_ids: list[str]) -> dict[str, str]:
+def _build_node_id_map(node_ids: list[str]) -> dict[str, str]:
     """Map client-provided node IDs to server-generated UUIDs."""
-    return {sid: str(uuid.uuid4()) for sid in step_ids}
+    return {nid: str(uuid.uuid4()) for nid in node_ids}
 
 
 def _remap_node_ids(nodes: list[NodeInput]) -> list[NodeInput]:
     """Replace client-provided node IDs with server-generated UUIDs."""
-    id_map = _build_step_id_map([n.id for n in nodes])
+    id_map = _build_node_id_map([n.id for n in nodes])
     return [
         node.model_copy(update={
             "id": id_map[node.id],
@@ -461,7 +461,7 @@ async def duplicate_workflow(
         now = datetime.now(timezone.utc)
 
         # Remap node IDs so the copy is fully independent
-        _id_map: dict[str, str] = _build_step_id_map(
+        _id_map: dict[str, str] = _build_node_id_map(
             [node.id for node in existing.nodes]
         )
 
