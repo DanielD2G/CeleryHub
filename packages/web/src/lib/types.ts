@@ -153,7 +153,7 @@ export interface WorkflowNode {
   args: string | null;
   kwargs: string | null;
   queue: string | null;
-  dependsOn: string[];
+  dependsOn: string; // JSON-encoded string[] of node IDs — parse with parseJson<string[]>(node.dependsOn, [])
   condition: string;
   timeoutSeconds: number | null;
 }
