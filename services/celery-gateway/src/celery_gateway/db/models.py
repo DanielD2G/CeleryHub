@@ -65,6 +65,8 @@ class WorkflowNode(Base):
         String, nullable=False, default="all_succeeded"
     )
     timeout_seconds: Mapped[int | None] = mapped_column(Integer, default=None)
+    position_x: Mapped[float | None] = mapped_column(Float, default=None)
+    position_y: Mapped[float | None] = mapped_column(Float, default=None)
 
     workflow: Mapped["Workflow"] = relationship(back_populates="nodes")
 

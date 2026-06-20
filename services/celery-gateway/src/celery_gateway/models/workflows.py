@@ -39,6 +39,8 @@ class NodeInput(_JsonFieldMixin, CamelModel):
         "all_succeeded", "all_completed", "any_succeeded", "any_failed"
     ] = "all_succeeded"
     timeout_seconds: int | None = None
+    position_x: float | None = None
+    position_y: float | None = None
 
 
 class CreateWorkflowInput(CamelModel):
@@ -78,6 +80,8 @@ class NodeResponse(CamelModel):
     depends_on: str
     condition: str
     timeout_seconds: int | None
+    position_x: float | None
+    position_y: float | None
 
 
 class WorkflowResponse(CamelModel):

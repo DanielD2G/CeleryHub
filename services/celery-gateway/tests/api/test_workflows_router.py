@@ -439,6 +439,25 @@ class TestRunNow:
         assert resp.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_create_persists_node_positions(client):
+    payload = {
+        "name": "wf-pos",
+        "nodes": [
+            {"id": "a", "label": "A", "taskName": "tasks.a",
+             "positionX": 120.5, "positionY": 40.0},
+        ],
+    }
+    resp = await client.post("/api/workflows", json=payload)
+    assert resp.status_code == 201
+    wid = resp.json()["id"]
+
+    detail = await client.get(f"/api/workflows/{wid}")
+    node = detail.json()["nodes"][0]
+    assert node["positionX"] == 120.5
+    assert node["positionY"] == 40.0
+
+
 class TestGetRuns:
     async def test_get_runs_empty(self, client: AsyncClient) -> None:
         created = await _create_unscheduled_workflow(client)
