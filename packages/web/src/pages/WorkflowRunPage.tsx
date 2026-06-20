@@ -6,7 +6,6 @@ import type { WorkflowRunDetail, Workflow } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -126,77 +125,66 @@ export default function WorkflowRunPage() {
         )}
       </div>
 
-      {workflow && workflow.steps.length > 0 && (
+      {workflow && workflow.nodes.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-lg font-semibold">Pipeline</h3>
           <WorkflowDag
-            steps={workflow.steps}
-            stepRuns={run.stepRuns}
+            nodes={workflow.nodes}
+            nodeRuns={run.nodeRuns}
             scheduleType={workflow.scheduleType}
           />
         </div>
       )}
 
-      {run.stepRuns.length > 0 && (
+      {run.nodeRuns.length > 0 && (
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold">Step Details</h3>
-          <div className="flex gap-4 overflow-x-auto pb-2">
-            {run.stepRuns.map((sr) => (
-              <Card key={sr.id} className="min-w-[350px] max-w-[450px] shrink-0">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">{sr.stepLabel}</CardTitle>
-                    <WorkflowStatusBadge status={sr.status} />
-                  </div>
-                  {sr.startedAt && (
-                    <p className="text-xs text-muted-foreground">
-                      {formatWorkflowDate(sr.startedAt)}
-                      {sr.finishedAt &&
-                        ` — ${formatWorkflowDuration(sr.startedAt, sr.finishedAt)}`}
-                    </p>
-                  )}
-                </CardHeader>
-                {sr.taskRuns.length > 0 && (
-                  <CardContent>
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Task</TableHead>
-                            <TableHead>Task ID</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Error</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {sr.taskRuns.map((tr) => (
-                            <TableRow key={tr.id}>
-                              <TableCell className="text-sm font-medium">
-                                <Link
-                                  to={`/tasks/${encodeURIComponent(tr.taskName)}`}
-                                  className="hover:underline"
-                                >
-                                  {tr.taskName}
-                                </Link>
-                              </TableCell>
-                              <TableCell className="font-mono text-xs">
-                                {tr.taskId ? tr.taskId.slice(0, 8) + "..." : "—"}
-                              </TableCell>
-                              <TableCell>
-                                <WorkflowStatusBadge status={tr.status} />
-                              </TableCell>
-                              <TableCell className="text-sm text-destructive">
-                                {tr.error || "—"}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-            ))}
+          <h3 className="text-lg font-semibold">Node Details</h3>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Node</TableHead>
+                  <TableHead>Task</TableHead>
+                  <TableHead>Celery Task ID</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Started</TableHead>
+                  <TableHead>Duration</TableHead>
+                  <TableHead>Error</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {run.nodeRuns.map((nr) => (
+                  <TableRow key={nr.id}>
+                    <TableCell className="font-medium">{nr.label}</TableCell>
+                    <TableCell className="text-sm">
+                      <Link
+                        to={`/tasks/${encodeURIComponent(nr.taskName)}`}
+                        className="hover:underline"
+                      >
+                        {nr.taskName}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {nr.celeryTaskId ? nr.celeryTaskId.slice(0, 8) + "..." : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <WorkflowStatusBadge status={nr.status} />
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {nr.startedAt ? formatWorkflowDate(nr.startedAt) : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {nr.startedAt
+                        ? formatWorkflowDuration(nr.startedAt, nr.finishedAt)
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-destructive">
+                      {nr.error || "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         </div>
       )}

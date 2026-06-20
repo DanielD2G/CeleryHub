@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { parseJson } from "@/lib/workflow-utils";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +18,7 @@ import {
   WorkflowForm,
   type CreateWorkflowInput,
 } from "@/components/workflows/workflow-form";
-import { apiToStepEditor } from "@/components/workflows/workflow-step-editor";
+import { apiToNodeEditor } from "@/components/workflows/workflow-node-editor";
 import { WorkflowRunHistory } from "@/components/workflows/workflow-run-history";
 import { WorkflowDag } from "@/components/workflows/workflow-dag";
 import { formatSchedule } from "@/lib/scheduler/cron";
@@ -51,15 +50,16 @@ function _workflowToExportJson(workflow: Workflow): string {
       cronExpression: workflow.cronExpression,
       enabled: workflow.enabled,
       maxRunCount: workflow.maxRunCount,
-      steps: workflow.steps.map((s) => ({
-        id: s.id,
-        label: s.label,
-        taskNames: parseJson<string[]>(s.taskNames, []),
-        args: s.args,
-        kwargs: s.kwargs,
-        queue: s.queue,
-        dependsOn: parseJson<string[]>(s.dependsOn, []),
-        condition: s.condition,
+      nodes: workflow.nodes.map((n) => ({
+        id: n.id,
+        label: n.label,
+        taskName: n.taskName,
+        args: n.args,
+        kwargs: n.kwargs,
+        queue: n.queue,
+        dependsOn: n.dependsOn,
+        condition: n.condition,
+        timeoutSeconds: n.timeoutSeconds,
       })),
     },
     null,
@@ -204,7 +204,7 @@ export function WorkflowDetailClient({
                   cronExpression: workflow.cronExpression ?? undefined,
                   enabled: workflow.enabled,
                   maxRunCount: workflow.maxRunCount,
-                  steps: workflow.steps.map(apiToStepEditor),
+                  nodes: workflow.nodes.map(apiToNodeEditor),
                 }}
                 onSubmit={async (input: CreateWorkflowInput) => {
                   try {
@@ -353,7 +353,7 @@ export function WorkflowDetailClient({
                 )}
               </Badge>
             </_InfoRow>
-            <_InfoRow label="Steps">{workflow.steps.length}</_InfoRow>
+            <_InfoRow label="Nodes">{workflow.nodes.length}</_InfoRow>
             <_InfoRow label="Max Runs">
               {workflow.maxRunCount != null ? workflow.maxRunCount : "Unlimited"}
             </_InfoRow>
@@ -397,10 +397,10 @@ export function WorkflowDetailClient({
         </Card>
       </div>
 
-      {workflow.steps.length > 0 && (
+      {workflow.nodes.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-lg font-semibold">Workflow DAG</h3>
-          <WorkflowDag steps={workflow.steps} scheduleType={workflow.scheduleType} />
+          <WorkflowDag nodes={workflow.nodes} scheduleType={workflow.scheduleType} />
         </div>
       )}
 

@@ -90,7 +90,7 @@ export function WorkflowTable({
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
-            <TableHead className="text-center">Steps</TableHead>
+            <TableHead className="text-center">Nodes</TableHead>
             <TableHead>Schedule</TableHead>
             <TableHead>Last Run</TableHead>
             <TableHead>Next Run</TableHead>
@@ -115,7 +115,7 @@ export function WorkflowTable({
                   )}
                 </div>
               </TableCell>
-              <TableCell className="text-center">{wf.stepCount}</TableCell>
+              <TableCell className="text-center">{wf.nodeCount}</TableCell>
               <TableCell>
                 <Badge variant="outline" className="font-mono text-xs">
                   {formatSchedule(wf.scheduleType, wf.intervalSeconds, wf.cronExpression)}
