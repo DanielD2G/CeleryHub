@@ -31,14 +31,12 @@ import { X } from "lucide-react";
 
 interface NodeConfigDrawerProps {
   node: WorkflowNode | null;
-  otherNodeIds: { id: string; label: string }[];
   onChange: (node: WorkflowNode) => void;
   onClose: () => void;
 }
 
 export function NodeConfigDrawer({
   node,
-  otherNodeIds: _otherNodeIds,
   onChange,
   onClose,
 }: NodeConfigDrawerProps) {

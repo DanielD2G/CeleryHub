@@ -316,9 +316,6 @@ export function WorkflowEditor({
       {selectedNode && (
         <NodeConfigDrawer
           node={selectedNode}
-          otherNodeIds={nodes
-            .filter((n) => n.id !== selectedNodeId)
-            .map((n) => ({ id: n.id, label: n.label || n.id }))}
           onChange={(updated) =>
             setNodes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
           }

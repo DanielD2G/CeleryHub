@@ -192,7 +192,7 @@ function _Inner(props: WorkflowCanvasProps) {
       if (wouldCreateCycle(edges, c.source, c.target)) return;
       setEdges((es) => {
         const next = addEdge(
-          { ...c, type: "canvas" as const, data: { onInsert: onInsertNode } },
+          { ...c, id: `${c.source}->${c.target}`, type: "canvas" as const, data: { onInsert: onInsertNode } },
           es,
         );
         emit(nodes, next);
