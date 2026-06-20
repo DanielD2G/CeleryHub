@@ -202,6 +202,8 @@ class TestWorkflowResponse:
             depends_on = "[]"
             condition = "all_succeeded"
             timeout_seconds = None
+            position_x = 10.0
+            position_y = 20.0
 
         class FakeORM:
             id = "abc"
@@ -225,6 +227,8 @@ class TestWorkflowResponse:
         assert resp.interval_seconds == 60
         assert len(resp.nodes) == 1
         assert resp.nodes[0].id == "node1"
+        assert resp.nodes[0].position_x == 10.0
+        assert resp.nodes[0].position_y == 20.0
 
 
 class TestWorkflowRunResponse:
