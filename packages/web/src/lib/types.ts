@@ -156,6 +156,11 @@ export interface WorkflowNode {
   dependsOn: string; // JSON-encoded string[] of node IDs — parse with parseJson<string[]>(node.dependsOn, [])
   condition: string;
   timeoutSeconds: number | null;
+  /** Raw columns returned by the API; null means no saved position */
+  positionX: number | null;
+  positionY: number | null;
+  /** Convenience form preferred by nodesToFlow; set when caller has already merged positionX/Y */
+  position?: { x: number; y: number } | null;
 }
 
 export interface Workflow {
