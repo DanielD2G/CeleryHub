@@ -131,25 +131,14 @@ export function WorkflowEditorPage() {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="flex items-center gap-3 border-b px-4 py-3">
-        <Button asChild variant="ghost" size="icon">
-          <Link to={backTo} aria-label="Back">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <h1 className="text-lg font-semibold">
-          {isEdit ? "Edit Workflow" : "Create Workflow"}
-        </h1>
-      </header>
-      <div className="min-h-0 flex-1 overflow-auto p-4">
-        <WorkflowEditor
-          key={workflow?.id ?? "new"}
-          defaultValues={workflow ? _toDefaults(workflow) : undefined}
-          nodes={workflow?.nodes}
-          onSubmit={handleSubmit}
-          submitLabel={isEdit ? "Save Changes" : "Create Workflow"}
-        />
-      </div>
+      <WorkflowEditor
+        key={workflow?.id ?? "new"}
+        defaultValues={workflow ? _toDefaults(workflow) : undefined}
+        nodes={workflow?.nodes}
+        onBack={() => navigate(backTo)}
+        onSubmit={handleSubmit}
+        submitLabel={isEdit ? "Save Changes" : "Create Workflow"}
+      />
     </div>
   );
 }

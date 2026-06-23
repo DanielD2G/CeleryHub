@@ -28,6 +28,7 @@ export interface WorkflowCanvasProps {
   nodes: WorkflowNode[];
   runs?: NodeRun[];
   readOnly?: boolean;
+  className?: string;
   onChange?: (nodes: WorkflowNode[]) => void;
   onSelectNode?: (id: string | null) => void;
   onInsertNode?: (edgeId: string) => void;
@@ -236,7 +237,7 @@ function _Inner(props: WorkflowCanvasProps) {
 
 export function WorkflowCanvas(props: WorkflowCanvasProps) {
   return (
-    <div className="h-[560px] w-full rounded-md border">
+    <div className={props.className ?? "h-[560px] w-full rounded-md border"}>
       <ReactFlowProvider>
         <_Inner {...props} />
       </ReactFlowProvider>
