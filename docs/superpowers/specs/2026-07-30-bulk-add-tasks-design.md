@@ -128,6 +128,28 @@ importan:
 - **Ciclos**: imposibles por construcción. Los nodos nuevos no tienen dependencias, y el
   target solo gana dependencias hacia nodos recién creados.
 
+## Comparación con n8n
+
+n8n no tiene selección múltiple: `N` abre el panel de nodos y `Enter` inserta **uno**,
+auto-conectado al nodo seleccionado. Su camino para muchos nodos de golpe es pegar JSON del
+portapapeles (`⌘V`).
+
+Puede permitírselo porque es item-based: un nodo procesa N items, así que "20 fuentes → 1
+consolidación" es un nodo con 20 items o un Merge node con inputs configurables, nunca 20
+nodos. CeleryHub es una task de Celery por nodo, así que el fan-in de 20 es estructural. Por
+eso la selección múltiple es la decisión correcta acá aunque ellos no la tengan.
+
+Dos divergencias deliberadas:
+
+- **Navegación entre nodos.** n8n navega con flechas en el canvas y abre con `Enter`; su panel
+  de detalles no tiene pager. Nuestro caso es cargar args en 20 nodos seguidos, y el pager
+  dentro del drawer evita cerrar y reabrir 20 veces.
+- **Auto-layout al agregar.** n8n coloca el nodo nuevo a la derecha del origen y nunca
+  reordena solo: el *tidy up* es un botón que el usuario aprieta. Nosotros ordenamos todo el
+  grafo en cada alta. Se evaluó explícitamente contra el comportamiento de n8n y se mantuvo:
+  se prefiere que el resultado quede siempre prolijo, aceptando que pise posiciones ajustadas
+  a mano.
+
 ## Tests
 
 En `lib/workflow-graph.test.ts`, que ya existe:
