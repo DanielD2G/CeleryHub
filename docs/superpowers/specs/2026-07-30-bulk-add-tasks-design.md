@@ -1,7 +1,7 @@
 # Bulk add tasks — multi-select con auto-wiring
 
 **Fecha:** 2026-07-30
-**Estado:** diseño aprobado
+**Estado:** ABSORBIDO PARCIALMENTE por [workflows como secuencia de pasos](./2026-07-30-workflow-linear-stages-design.md) — sobreviven el diálogo de selección múltiple (sin el selector "Conectar a") y el pager del drawer; el auto-wiring y el auto-layout desaparecen con el canvas editable
 
 ## Problema
 

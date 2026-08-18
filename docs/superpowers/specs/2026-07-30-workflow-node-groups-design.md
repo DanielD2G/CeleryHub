@@ -1,7 +1,7 @@
 # Grupos de nodos en workflows
 
 **Fecha:** 2026-07-30
-**Estado:** diseño aprobado
+**Estado:** SUPERSEDIDO por [workflows como secuencia de pasos](./2026-07-30-workflow-linear-stages-design.md) — el modelo de lista hace innecesarios los grupos como entidad: un grupo pasa a ser "las tasks que comparten stage"
 **Servicio:** `services/celery-gateway` (backend) + `packages/web` (frontend)
 
 ## Problema
