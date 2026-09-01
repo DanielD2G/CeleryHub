@@ -84,7 +84,11 @@ function useColumnResize() {
     active.current = false;
   }, []);
 
-  return { widths, onPointerDown, onPointerMove, onPointerUp };
+  const onPointerCancel = useCallback(() => {
+    active.current = false;
+  }, []);
+
+  return { widths, onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
 }
 
 function getPageNumbers(current: number, total: number): (number | "ellipsis")[] {
@@ -125,7 +129,9 @@ export default function HistoryPage() {
       (a, b) => b.completedAt - a.completedAt
     );
     const fromTs = dateFrom ? dateFrom.getTime() / 1000 : 0;
-    const toTs = dateTo ? dateTo.getTime() / 1000 : Infinity;
+    const toTs = dateTo
+      ? new Date(dateTo).setHours(23, 59, 59, 999) / 1000
+      : Infinity;
     const q = search.trim().toLowerCase();
 
     return all.filter((t) => {
@@ -160,7 +166,8 @@ export default function HistoryPage() {
     setPage(1);
   };
 
-  const { widths, onPointerDown, onPointerMove, onPointerUp } = useColumnResize();
+  const { widths, onPointerDown, onPointerMove, onPointerUp, onPointerCancel } =
+    useColumnResize();
 
   return (
     <div className="space-y-6">
@@ -169,7 +176,7 @@ export default function HistoryPage() {
         description="Completed task executions"
       />
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -212,8 +219,9 @@ export default function HistoryPage() {
                     <span className="truncate">{col.label}</span>
                     {i < COLUMNS.length - 1 && (
                       <span
-                        className="absolute inset-y-0 -right-px z-10 w-2 cursor-col-resize select-none hover:bg-border"
+                        className="absolute inset-y-0 -right-px z-10 w-2 cursor-col-resize touch-none select-none hover:bg-border"
                         onPointerDown={(e) => onPointerDown(e, i)}
+                        onPointerCancel={onPointerCancel}
                         onPointerMove={onPointerMove}
                         onPointerUp={onPointerUp}
                       />

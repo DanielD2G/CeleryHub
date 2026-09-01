@@ -180,7 +180,7 @@ export default function WorkflowRunPage() {
       {run.stepRuns.length > 0 && (
         <div className="space-y-4">
           <h3 className="text-lg font-semibold">Step Details</h3>
-          <div className="flex gap-4 overflow-x-auto pb-2">
+          <div className="flex flex-col gap-4 pb-2 md:flex-row md:overflow-x-auto">
             {run.stepRuns.map((sr) => (
               <Card key={sr.id} className="min-w-[350px] max-w-[450px] shrink-0">
                 <CardHeader className="pb-2">
@@ -225,7 +225,7 @@ export default function WorkflowRunPage() {
                               <TableCell>
                                 <WorkflowStatusBadge status={tr.status} />
                               </TableCell>
-                              <TableCell className="text-sm text-destructive">
+                              <TableCell className="max-w-[28ch] truncate text-sm text-destructive" title={tr.error ?? undefined}>
                                 {tr.error || "—"}
                               </TableCell>
                             </TableRow>

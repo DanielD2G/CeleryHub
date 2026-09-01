@@ -24,11 +24,11 @@ export function WorkflowDagNode({ label, taskNames, status }: DagNodeProps) {
     <Card className="w-[280px] p-3 shadow-sm">
       <div className="flex items-center gap-2">
         {StatusIcon && <StatusIcon className={`h-4 w-4 shrink-0 ${config!.className}`} />}
-        <span className="text-sm font-medium truncate">{label}</span>
+        <span className="text-sm font-medium truncate" title={label}>{label}</span>
       </div>
       <div className="mt-1.5 flex flex-wrap gap-1">
         {taskNames.map((t) => (
-          <Badge key={t} variant="secondary" className="font-mono text-[10px] px-1.5 py-0 max-w-full truncate">
+          <Badge key={t} variant="secondary" className="font-mono text-[10px] px-1.5 py-0 max-w-full truncate" title={t}>
             {t}
           </Badge>
         ))}

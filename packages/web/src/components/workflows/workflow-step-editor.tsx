@@ -1,3 +1,4 @@
+import { parseJson } from "@/lib/workflow-utils";
 import { useState } from "react";
 import { useCelery } from "@/hooks/use-celery";
 import { Input } from "@/components/ui/input";
@@ -212,7 +213,7 @@ export function WorkflowStepEditor({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label>Condition</Label>
           <Select
@@ -294,7 +295,7 @@ export function WorkflowStepEditor({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label>Args</Label>
           <ArgsBuilder
@@ -358,8 +359,8 @@ export function apiToStepEditor(step: {
   return {
     id: step.id,
     label: step.label,
-    taskNames: JSON.parse(step.taskNames || "[]"),
-    dependsOn: JSON.parse(step.dependsOn || "[]"),
+    taskNames: parseJson<string[]>(step.taskNames, []),
+    dependsOn: parseJson<string[]>(step.dependsOn, []),
     condition: step.condition,
     queue: step.queue || "celery",
     argItems: parseArgsToItems(step.args || "[]"),

@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { TaskResult } from "@/lib/types";
@@ -59,8 +60,10 @@ export function TaskDetailDialog({
       });
       setRetried(true);
       setTimeout(() => setRetried(false), 3000);
-    } catch {
-      // ignore
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Resend failed — the task was not dispatched"
+      );
     } finally {
       setRetrying(false);
     }
@@ -126,7 +129,7 @@ export function TaskDetailDialog({
           </div>
 
           {showPayload && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <p className="mb-1 text-sm text-muted-foreground">Args</p>
                 <ScrollArea className="max-h-32 rounded-md border bg-muted p-3">
