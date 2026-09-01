@@ -23,6 +23,12 @@ export function formatWorkflowDuration(start: string, end: string | null): strin
   return `${Math.round(ms / 60000)}m`;
 }
 
+export function formatDurationSeconds(seconds: number): string {
+  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  return `${Math.round(seconds / 60)}m`;
+}
+
 export function parseJson<T>(json: string | null, fallback: T): T {
   if (!json) return fallback;
   try {

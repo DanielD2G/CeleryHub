@@ -43,9 +43,11 @@ COPY --from=web-builder /build/packages/web/dist /app/packages/web/dist/
 COPY --from=py-builder --chown=celeryhub:celeryhub /build/gateway/alembic.ini /app/alembic.ini
 COPY --from=py-builder --chown=celeryhub:celeryhub /build/gateway/migrations/ /app/migrations/
 
+ARG CELERYHUB_VERSION=dev
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=3000
+    PORT=3000 \
+    CELERYHUB_VERSION=${CELERYHUB_VERSION}
 
 USER celeryhub
 

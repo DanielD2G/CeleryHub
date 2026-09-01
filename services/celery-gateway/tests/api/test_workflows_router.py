@@ -419,3 +419,62 @@ class TestGetRuns:
         runs = resp.json()
         assert len(runs) >= 1
         assert runs[0]["status"] in ("running", "succeeded", "failed")
+
+
+class TestRunDurations:
+    async def test_empty_when_no_runs(self, client: AsyncClient) -> None:
+        wf = await _create_interval_workflow(client, name="durations-empty")
+        resp = await client.get(f"/api/workflows/{wf['id']}/run-durations")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["workflowId"] == wf["id"]
+        assert body["items"] == []
+
+    async def test_durations_with_finished_run(
+        self, client: AsyncClient, db_session
+    ) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from celery_gateway.db.models import StepRun, WorkflowRun
+
+        wf = await _create_interval_workflow(client, name="durations-run")
+        t0 = datetime.now(timezone.utc) - timedelta(minutes=10)
+        run = WorkflowRun(
+            id="run-dur-1", workflow_id=wf["id"], status="succeeded",
+            trigger="manual", started_at=t0,
+            finished_at=t0 + timedelta(seconds=90),
+        )
+        db_session.add(run)
+        db_session.add(StepRun(
+            id="sr-dur-1", workflow_run_id="run-dur-1", step_id="s1",
+            step_label="Only Step", status="succeeded",
+            started_at=t0, finished_at=t0 + timedelta(seconds=90),
+        ))
+        await db_session.commit()
+
+        resp = await client.get(f"/api/workflows/{wf['id']}/run-durations")
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        assert len(items) == 1
+        item = items[0]
+        assert item["durationSeconds"] == pytest.approx(90.0)
+        assert item["steps"][0]["stepLabel"] == "Only Step"
+        assert item["steps"][0]["durationSeconds"] == pytest.approx(90.0)
+
+    async def test_running_run_has_null_duration(
+        self, client: AsyncClient, db_session
+    ) -> None:
+        from datetime import datetime, timezone
+
+        from celery_gateway.db.models import WorkflowRun
+
+        wf = await _create_interval_workflow(client, name="durations-running")
+        db_session.add(WorkflowRun(
+            id="run-dur-2", workflow_id=wf["id"], status="running",
+            trigger="scheduled", started_at=datetime.now(timezone.utc),
+        ))
+        await db_session.commit()
+
+        resp = await client.get(f"/api/workflows/{wf['id']}/run-durations")
+        items = resp.json()["items"]
+        assert items[0]["durationSeconds"] is None
