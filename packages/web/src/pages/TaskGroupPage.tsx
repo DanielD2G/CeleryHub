@@ -9,6 +9,7 @@ import { TaskGroupKpis, computeTaskGroupStats } from "@/components/tasks/task-gr
 import { TaskGroupActive } from "@/components/tasks/task-group-active";
 import { TaskGroupHistory } from "@/components/tasks/task-group-history";
 import { SendTaskDialog } from "@/components/tasks/send-task-dialog";
+import { TaskHistoryPanel } from "@/components/tasks/task-history-panel";
 import { ArrowLeft, Send, Play } from "lucide-react";
 
 export default function TaskGroupPage() {
@@ -76,6 +77,9 @@ export default function TaskGroupPage() {
         runtimeSamples={runtimeSamples}
         tick={tick}
       />
+
+      {/* Persistent history (Postgres-backed) */}
+      <TaskHistoryPanel taskName={taskName} />
 
       {/* Past executions */}
       <TaskGroupHistory history={history} taskName={taskName} />

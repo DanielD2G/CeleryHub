@@ -31,6 +31,8 @@ export interface StepEditorState {
   argItems: string[];
   kwargPairs: [string, string][];
   timeoutSeconds: number | null;
+  maxRetries?: number;
+  retryDelaySeconds?: number | null;
 }
 
 interface WorkflowStepEditorProps {
@@ -239,21 +241,57 @@ export function WorkflowStepEditor({
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <Label>Timeout (seconds)</Label>
-        <Input
-          type="number"
-          min={0}
-          value={step.timeoutSeconds ?? ""}
-          onChange={(e) =>
-            onChange({
-              ...step,
-              timeoutSeconds: e.target.value ? parseInt(e.target.value, 10) : null,
-            })
-          }
-          placeholder="No timeout"
-          className="w-40"
-        />
+      <div className="flex flex-wrap gap-3">
+        <div className="space-y-1.5">
+          <Label>Timeout (seconds)</Label>
+          <Input
+            type="number"
+            min={0}
+            value={step.timeoutSeconds ?? ""}
+            onChange={(e) =>
+              onChange({
+                ...step,
+                timeoutSeconds: e.target.value ? parseInt(e.target.value, 10) : null,
+              })
+            }
+            placeholder="No timeout"
+            className="w-40"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Max retries</Label>
+          <Input
+            type="number"
+            min={0}
+            max={10}
+            value={step.maxRetries ?? 0}
+            onChange={(e) =>
+              onChange({
+                ...step,
+                maxRetries: e.target.value ? parseInt(e.target.value, 10) : 0,
+              })
+            }
+            className="w-28"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Retry delay (s)</Label>
+          <Input
+            type="number"
+            min={0}
+            value={step.retryDelaySeconds ?? ""}
+            onChange={(e) =>
+              onChange({
+                ...step,
+                retryDelaySeconds: e.target.value
+                  ? parseInt(e.target.value, 10)
+                  : null,
+              })
+            }
+            placeholder="0"
+            className="w-28"
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -288,6 +326,8 @@ export function stepEditorToApi(step: StepEditorState): {
   dependsOn: string[];
   condition: string;
   timeoutSeconds: number | null;
+  maxRetries?: number;
+  retryDelaySeconds?: number | null;
 } {
   return {
     id: step.id,
@@ -299,6 +339,8 @@ export function stepEditorToApi(step: StepEditorState): {
     dependsOn: step.dependsOn,
     condition: step.condition,
     timeoutSeconds: step.timeoutSeconds,
+    maxRetries: step.maxRetries ?? 0,
+    retryDelaySeconds: step.retryDelaySeconds ?? null,
   };
 }
 

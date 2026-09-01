@@ -28,6 +28,7 @@ export interface CreateWorkflowInput {
   cronExpression?: string;
   enabled: boolean;
   maxRunCount: number | null;
+  expectSuccessWithinSeconds?: number | null;
   steps: {
     id: string;
     label: string;
@@ -50,6 +51,7 @@ interface WorkflowFormProps {
     cronExpression: string;
     enabled: boolean;
     maxRunCount: number | null;
+    expectSuccessWithinSeconds?: number | null;
     steps: StepEditorState[];
   }>;
   onSubmit: (input: CreateWorkflowInput) => Promise<{ error?: string }>;
@@ -93,6 +95,11 @@ export function WorkflowForm({
   const [enabled, setEnabled] = useState(initialValues?.enabled !== false);
   const [maxRunCount, setMaxRunCount] = useState(
     initialValues?.maxRunCount != null ? String(initialValues.maxRunCount) : ""
+  );
+  const [expectSuccessWithin, setExpectSuccessWithin] = useState(
+    initialValues?.expectSuccessWithinSeconds != null
+      ? String(initialValues.expectSuccessWithinSeconds)
+      : ""
   );
   const [steps, setSteps] = useState<StepEditorState[]>(
     initialValues?.steps || []
@@ -162,6 +169,9 @@ export function WorkflowForm({
         scheduleType === "cron" ? cronExpression : undefined,
       enabled,
       maxRunCount: maxRunCount ? parseInt(maxRunCount, 10) : null,
+      expectSuccessWithinSeconds: expectSuccessWithin
+        ? parseInt(expectSuccessWithin, 10)
+        : null,
       steps: steps.map(stepEditorToApi),
     };
 
@@ -271,17 +281,35 @@ export function WorkflowForm({
             </Tabs>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="wf-max-runs">Max Run Count (optional)</Label>
-            <Input
-              id="wf-max-runs"
-              type="number"
-              min="1"
-              value={maxRunCount}
-              onChange={(e) => setMaxRunCount(e.target.value)}
-              placeholder="Unlimited"
-              className="w-40"
-            />
+          <div className="flex flex-wrap gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="wf-max-runs">Max Run Count (optional)</Label>
+              <Input
+                id="wf-max-runs"
+                type="number"
+                min="1"
+                value={maxRunCount}
+                onChange={(e) => setMaxRunCount(e.target.value)}
+                placeholder="Unlimited"
+                className="w-40"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="wf-dms">Alert if no success within (seconds)</Label>
+              <Input
+                id="wf-dms"
+                type="number"
+                min="60"
+                value={expectSuccessWithin}
+                onChange={(e) => setExpectSuccessWithin(e.target.value)}
+                placeholder="Disabled"
+                className="w-40"
+              />
+              <p className="text-xs text-muted-foreground">
+                Dead man&apos;s switch — fires the alert rule even if CeleryHub
+                itself was down when the schedule was missed.
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">

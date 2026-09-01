@@ -156,6 +156,8 @@ export interface WorkflowStep {
   dependsOn: string; // JSON string of step IDs
   condition: string;
   timeoutSeconds: number | null;
+  maxRetries?: number;
+  retryDelaySeconds?: number | null;
 }
 
 export interface Workflow {
@@ -167,6 +169,7 @@ export interface Workflow {
   cronExpression: string | null;
   enabled: boolean;
   maxRunCount: number | null;
+  expectSuccessWithinSeconds?: number | null;
   totalRunCount: number;
   lastRunAt: string | null;
   nextRunAt: string | null;
@@ -184,6 +187,7 @@ export interface WorkflowSummary {
   cronExpression: string | null;
   enabled: boolean;
   maxRunCount: number | null;
+  expectSuccessWithinSeconds?: number | null;
   totalRunCount: number;
   lastRunAt: string | null;
   nextRunAt: string | null;
