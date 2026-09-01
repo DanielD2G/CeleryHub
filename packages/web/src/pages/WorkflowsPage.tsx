@@ -12,11 +12,14 @@ export default function WorkflowsPage() {
   useDocumentTitle("Workflows");
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const fetchWorkflows = useCallback(async () => {
     try {
       setWorkflows(await apiGet<WorkflowSummary[]>("/api/workflows"));
+      setLoadError(false);
     } catch {
+      setLoadError(true);
       // ignore
     } finally {
       setLoading(false);
@@ -43,7 +46,15 @@ export default function WorkflowsPage() {
           ))}
         </div>
       ) : (
-        <WorkflowTable workflows={workflows} onRefresh={fetchWorkflows} />
+        <>
+          {loadError && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+              Failed to load workflows — showing last known data. Retrying
+              automatically.
+            </div>
+          )}
+          <WorkflowTable workflows={workflows} onRefresh={fetchWorkflows} />
+        </>
       )}
     </div>
   );

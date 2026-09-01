@@ -1,3 +1,5 @@
+import { toast } from "sonner";
+import { formatDurationSeconds } from "@/lib/workflow-utils";
 import { Link } from "react-router-dom";
 import { useCeleryTasks } from "@/hooks/use-celery";
 import { useTick } from "@/hooks/use-tick";
@@ -20,14 +22,10 @@ import {
 import { useCallback, useState } from "react";
 import { Loader2, Square } from "lucide-react";
 
-function formatDuration(secs: number): string {
-  if (secs < 60) return `${secs.toFixed(1)}s`;
-  return `${Math.floor(secs / 60)}m ${Math.floor(secs % 60)}s`;
-}
 
 function Duration({ since, tick }: { since: number; tick: number }) {
   void tick; // triggers re-render
-  const elapsed = formatDuration(Date.now() / 1000 - since);
+  const elapsed = formatDurationSeconds(Date.now() / 1000 - since);
   return <span className="font-mono text-xs">{elapsed}</span>;
 }
 
@@ -41,8 +39,9 @@ export function ActiveTasks() {
     setRevokingIds((prev) => new Set(prev).add(taskId));
     try {
       await apiPost(`/api/tasks/${taskId}/revoke`, { terminate: true, signal: "SIGTERM" });
+      toast.success("Revoke sent (SIGTERM)");
     } catch {
-      // ignore
+      toast.error("Revoke failed — the task is still running");
     } finally {
       setTimeout(() => {
         setRevokingIds((prev) => {

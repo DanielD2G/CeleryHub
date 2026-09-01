@@ -1,3 +1,6 @@
+import { clickableRow } from "@/lib/row-nav";
+import { toast } from "sonner";
+import { formatDurationSeconds } from "@/lib/workflow-utils";
 import { useState } from "react";
 import type { CompletedTaskMeta } from "@/lib/types";
 import { statusVariant, normalizeArgs, normalizeKwargs } from "@/lib/task-utils";
@@ -28,14 +31,18 @@ export function TaskGroupHistory({
   const handleRetry = async (task: CompletedTaskMeta) => {
     setRetryingId(task.taskId);
     try {
-      await apiPost("/api/tasks/send", {
+      const res = await apiPost<{ taskId?: string }>("/api/tasks/send", {
         taskName,
+        // completed-task metadata does not record the queue
         queue: "celery",
         args: normalizeArgs(task.args),
         kwargs: normalizeKwargs(task.kwargs),
       });
+      toast.success(`Task dispatched (${(res.taskId ?? "").slice(0, 8)}…)`);
+    } catch {
+      toast.error("Retry failed — the task was not dispatched");
     } finally {
-      setTimeout(() => setRetryingId(null), 1500);
+      setRetryingId(null);
     }
   };
 
@@ -67,8 +74,7 @@ export function TaskGroupHistory({
               {history.map((task) => (
                 <TableRow
                   key={task.taskId}
-                  className="cursor-pointer"
-                  onClick={() => setSelected(task)}
+                  {...clickableRow(() => setSelected(task))}
                 >
                   <TableCell className="font-mono text-xs">
                     {task.taskId.slice(0, 8)}...
@@ -81,7 +87,7 @@ export function TaskGroupHistory({
                   </TableCell>
                   <TableCell className="font-mono text-xs">
                     {task.runtime != null
-                      ? `${task.runtime.toFixed(3)}s`
+                      ? formatDurationSeconds(task.runtime)
                       : "—"}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">

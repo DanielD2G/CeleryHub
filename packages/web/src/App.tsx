@@ -4,6 +4,7 @@ import { AppSidebar } from "./components/app-sidebar";
 import { SidebarInset, SidebarProvider } from "./components/ui/sidebar";
 import { ErrorBoundary } from "./components/error-boundary";
 import { AppRoutes } from "./router";
+import { Toaster } from "sonner";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
                 <AppRoutes />
               </ErrorBoundary>
             </div>
+            <Toaster richColors position="bottom-right" />
           </SidebarInset>
         </SidebarProvider>
       </EventProvider>
