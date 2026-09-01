@@ -18,6 +18,9 @@ from ..middleware.auth import require_auth
 from ..models.base import CamelModel
 
 from ..models.workflows import (
+    RunDurationItem,
+    RunDurationsResponse,
+    StepDurationItem,
     CreateWorkflowInput,
     StepInput,
     UpdateWorkflowInput,
@@ -531,6 +534,58 @@ async def run_workflow_now(workflow_id: str) -> JSONResponse:
         ) from exc
 
     return JSONResponse({"runId": run_id}, status_code=201)
+
+
+@router.get(
+    "/{workflow_id}/run-durations", response_model=RunDurationsResponse
+)
+async def get_workflow_run_durations(
+    workflow_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> RunDurationsResponse:
+    """Duration series for recent runs, oldest first, with per-step split.
+
+    Feeds trend views: a workflow whose runs keep getting slower shows up
+    here before it starts timing out.
+    """
+    async with get_session() as session:
+        stmt = (
+            select(WorkflowRun)
+            .where(WorkflowRun.workflow_id == workflow_id)
+            .options(selectinload(WorkflowRun.step_runs))
+            .order_by(WorkflowRun.started_at.desc())
+            .limit(limit)
+        )
+        runs = list((await session.execute(stmt)).scalars().all())
+
+    def _dur(start: Any, end: Any) -> float | None:
+        if start is None or end is None:
+            return None
+        return (end - start).total_seconds()
+
+    items = [
+        RunDurationItem(
+            run_id=run.id,
+            status=run.status,
+            trigger=run.trigger,
+            started_at=run.started_at,
+            finished_at=run.finished_at,
+            duration_seconds=_dur(run.started_at, run.finished_at),
+            steps=[
+                StepDurationItem(
+                    step_label=sr.step_label,
+                    status=sr.status,
+                    duration_seconds=_dur(sr.started_at, sr.finished_at),
+                )
+                for sr in sorted(
+                    run.step_runs,
+                    key=lambda sr: (sr.started_at is None, sr.started_at),
+                )
+            ],
+        )
+        for run in reversed(runs)
+    ]
+    return RunDurationsResponse(workflow_id=workflow_id, items=items)
 
 
 @router.get(

@@ -153,3 +153,24 @@ class WorkflowRunDetailResponse(CamelModel):
     started_at: datetime
     finished_at: datetime | None
     step_runs: list[StepRunResponse]
+
+
+class StepDurationItem(CamelModel):
+    step_label: str
+    status: str
+    duration_seconds: float | None
+
+
+class RunDurationItem(CamelModel):
+    run_id: str
+    status: str
+    trigger: str
+    started_at: datetime
+    finished_at: datetime | None
+    duration_seconds: float | None
+    steps: list[StepDurationItem]
+
+
+class RunDurationsResponse(CamelModel):
+    workflow_id: str
+    items: list[RunDurationItem]
