@@ -58,3 +58,80 @@ async def test_get_and_put_retention(client):
 async def test_put_retention_rejects_zero(client):
     resp = await client.put("/api/settings/retention", json={"retentionDays": 0})
     assert resp.status_code == 400
+
+
+async def _insert_full_event(
+    session: AsyncSession,
+    uid: str,
+    task_name: str | None,
+    event_type: str,
+    runtime: float | None = None,
+    exception: str | None = None,
+) -> None:
+    await ensure_partitions(session, datetime.now(timezone.utc).date())
+    await session.execute(
+        text(
+            "INSERT INTO celery_events "
+            "(event_uid, event_time, event_type, task_id, task_name, runtime, "
+            " exception, payload, ingested_at) "
+            "VALUES (:uid, now(), :etype, :uid, :tname, :rt, :exc, "
+            " '{}'::jsonb, now())"
+        ),
+        {"uid": uid, "etype": event_type, "tname": task_name,
+         "rt": runtime, "exc": exception},
+    )
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_stats_aggregates_per_task(client, db_session: AsyncSession):
+    for i, rt in enumerate([1.0, 2.0, 3.0, 10.0]):
+        await _insert_full_event(
+            db_session, f"s{i}", "tasks.stats", "task-succeeded", runtime=rt
+        )
+    await _insert_full_event(db_session, "f1", "tasks.stats", "task-failed")
+    await _insert_full_event(db_session, "r1", "tasks.stats", "task-received")
+
+    resp = await client.get("/api/event-log/stats")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 1
+    it = items[0]
+    assert it["taskName"] == "tasks.stats"
+    assert it["succeeded"] == 4
+    assert it["failed"] == 1
+    assert it["received"] == 1
+    assert it["failureRate"] == pytest.approx(0.2)
+    assert it["runtimeAvg"] == pytest.approx(4.0)
+    assert it["runtimeP50"] == pytest.approx(2.5)
+
+
+@pytest.mark.asyncio
+async def test_stats_excludes_null_task_name(client, db_session: AsyncSession):
+    await _insert_full_event(db_session, "n1", None, "task-succeeded", runtime=1.0)
+    resp = await client.get("/api/event-log/stats")
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_exceptions_grouped_by_signature(client, db_session: AsyncSession):
+    for i in range(3):
+        await _insert_full_event(
+            db_session, f"e{i}", "tasks.boom", "task-failed",
+            exception="ValueError: bad input\nmore detail",
+        )
+    await _insert_full_event(
+        db_session, "e9", "tasks.boom", "task-failed",
+        exception="KeyError: 'x'",
+    )
+
+    resp = await client.get("/api/event-log/exceptions")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 2
+    top = items[0]
+    assert top["exception"] == "ValueError: bad input"
+    assert top["count"] == 3
+    assert top["taskName"] == "tasks.boom"
+    assert top["sampleTaskId"] is not None
