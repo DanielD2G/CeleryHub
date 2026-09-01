@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useDocumentTitle } from "@/hooks/use-document-title";
@@ -62,9 +63,10 @@ export default function WorkflowRunPage() {
     setRetrying(true);
     try {
       await apiPost(`/api/workflows/runs/${runId}/retry`);
+      toast.success("Retrying failed steps");
       fetchData();
-    } catch {
-      // next poll will show current status
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Retry failed");
     } finally {
       setRetrying(false);
     }
@@ -72,12 +74,16 @@ export default function WorkflowRunPage() {
 
   const handleCancelRun = async () => {
     if (!runId) return;
+    if (!confirm("Cancel this run? In-flight Celery tasks will be revoked.")) {
+      return;
+    }
     setCancelling(true);
     try {
       await apiPost(`/api/workflows/runs/${runId}/cancel`);
+      toast.success("Run cancelled; in-flight tasks revoked");
       fetchData();
-    } catch {
-      // next poll will show current status
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Cancel failed");
     } finally {
       setCancelling(false);
     }
@@ -164,7 +170,11 @@ export default function WorkflowRunPage() {
       )}
 
       {runId && (
-        <RunComparison runId={runId} finished={run.status !== "running"} />
+        <RunComparison
+          runId={runId}
+          finished={run.status !== "running"}
+          refreshKey={run.status}
+        />
       )}
 
       {run.stepRuns.length > 0 && (

@@ -18,7 +18,10 @@ from ..middleware.auth import require_auth
 from ..models.base import CamelModel
 
 from ..models.workflows import (
+    ComparisonResponse,
+    ComparisonStep,
     RunDurationItem,
+    UsingTaskItem,
     RunDurationsResponse,
     StepDurationItem,
     CreateWorkflowInput,
@@ -253,8 +256,8 @@ async def get_workflow_run_detail(run_id: str) -> Any:
         return wf_run
 
 
-@router.get("/runs/{run_id}/comparison")
-async def run_comparison(run_id: str) -> JSONResponse:
+@router.get("/runs/{run_id}/comparison", response_model=ComparisonResponse)
+async def run_comparison(run_id: str) -> ComparisonResponse:
     """This run vs the p50 of the workflow's last 20 finished runs, per step.
 
     Answers "which step ate the difference" when a run comes in slow.
@@ -264,7 +267,7 @@ async def run_comparison(run_id: str) -> JSONResponse:
     async with get_session() as session:
         run = await session.get(WorkflowRun, run_id)
         if run is None:
-            return JSONResponse({"error": "Run not found"}, status_code=404)
+            raise HTTPException(status_code=404, detail="Run not found")
 
         rows = (
             await session.execute(
@@ -302,7 +305,7 @@ async def run_comparison(run_id: str) -> JSONResponse:
             )
         ).all()
 
-    steps = []
+    steps: list[ComparisonStep] = []
     for label, status, duration, p50, n in rows:
         delta = (
             float(duration) - float(p50)
@@ -310,24 +313,22 @@ async def run_comparison(run_id: str) -> JSONResponse:
             else None
         )
         steps.append(
-            {
-                "stepLabel": label,
-                "status": status,
-                "durationSeconds": float(duration) if duration is not None else None,
-                "baselineP50Seconds": float(p50) if p50 is not None else None,
-                "baselineRuns": int(n),
-                "deltaSeconds": delta,
-            }
+            ComparisonStep(
+                step_label=label,
+                status=status,
+                duration_seconds=float(duration) if duration is not None else None,
+                baseline_p50_seconds=float(p50) if p50 is not None else None,
+                baseline_runs=int(n),
+                delta_seconds=delta,
+            )
         )
-    total = sum(s_["durationSeconds"] or 0 for s_ in steps)
-    baseline_total = sum(s_["baselineP50Seconds"] or 0 for s_ in steps)
-    return JSONResponse(
-        {
-            "runId": run_id,
-            "steps": steps,
-            "totalSeconds": total,
-            "baselineTotalSeconds": baseline_total,
-        }
+    total = sum(st.duration_seconds or 0 for st in steps)
+    baseline_total = sum(st.baseline_p50_seconds or 0 for st in steps)
+    return ComparisonResponse(
+        run_id=run_id,
+        steps=steps,
+        total_seconds=total,
+        baseline_total_seconds=baseline_total,
     )
 
 
@@ -338,15 +339,15 @@ async def retry_run(run_id: str) -> JSONResponse:
 
     retried: bool = await retry_workflow_run(run_id)
     if not retried:
-        return JSONResponse(
-            {"error": "Run not found or not in a retryable state"},
+        raise HTTPException(
             status_code=409,
+            detail="Run not found or not in a retryable state",
         )
     return JSONResponse({"runId": run_id, "status": "running"})
 
 
-@router.get("/using-task/{task_name}")
-async def workflows_using_task(task_name: str) -> list[dict[str, str]]:
+@router.get("/using-task/{task_name}", response_model=list[UsingTaskItem])
+async def workflows_using_task(task_name: str) -> list[UsingTaskItem]:
     """Workflows whose steps run the given task (for the task-detail page)."""
     needle = f'"{task_name}"'
     async with get_session() as session:
@@ -358,7 +359,7 @@ async def workflows_using_task(task_name: str) -> list[dict[str, str]]:
             )
         ).all()
     return [
-        {"workflowId": wid, "workflowName": wname, "stepLabel": slabel}
+        UsingTaskItem(workflow_id=wid, workflow_name=wname, step_label=slabel)
         for wid, wname, slabel in rows
     ]
 
@@ -622,6 +623,8 @@ async def duplicate_workflow(
                 depends_on=json.dumps(new_deps),
                 condition=step.condition,
                 timeout_seconds=step.timeout_seconds,
+                max_retries=step.max_retries,
+                retry_delay_seconds=step.retry_delay_seconds,
             )
             session.add(ws)
 

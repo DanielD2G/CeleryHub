@@ -1,3 +1,4 @@
+import { formatDurationSeconds } from "@/lib/workflow-utils";
 import { useState } from "react";
 import type { ActiveTask } from "@/lib/types";
 import { apiPost } from "@/lib/api";
@@ -18,10 +19,6 @@ import {
 } from "@/components/ui/tooltip";
 import { Play, Loader2, Square } from "lucide-react";
 
-function _formatDuration(secs: number): string {
-  if (secs < 60) return `${secs.toFixed(1)}s`;
-  return `${Math.floor(secs / 60)}m ${Math.floor(secs % 60)}s`;
-}
 
 function Duration({
   since,
@@ -34,14 +31,14 @@ function Duration({
 }) {
   void tick; // triggers re-render
   const secs = Date.now() / 1000 - since;
-  const elapsed = _formatDuration(secs);
+  const elapsed = formatDurationSeconds(secs);
   let remaining: string | null = null;
   let progress: number | null = null;
 
   if (avgRuntime != null && avgRuntime > 0) {
     const left = avgRuntime - secs;
     progress = Math.min((secs / avgRuntime) * 100, 100);
-    remaining = left > 0 ? `~${_formatDuration(left)} left` : "overtime";
+    remaining = left > 0 ? `~${formatDurationSeconds(left)} left` : "overtime";
   }
 
   return (
@@ -107,7 +104,7 @@ export function TaskGroupActive({
         Running now
         {avgRuntime != null && (
           <span className="font-normal text-xs text-muted-foreground">
-            {runtimeSamples === 1 ? "est." : "avg"} {_formatDuration(avgRuntime)}
+            {runtimeSamples === 1 ? "est." : "avg"} {formatDurationSeconds(avgRuntime)}
           </span>
         )}
       </h3>

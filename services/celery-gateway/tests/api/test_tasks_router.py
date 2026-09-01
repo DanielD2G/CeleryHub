@@ -173,7 +173,7 @@ class TestRevokeTask:
         resp = await client.post("/api/tasks/test-task-id/revoke")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["task_id"] == "test-task-id"
+        assert data["taskId"] == "test-task-id"
         assert data["revoked"] is True
 
     async def test_revoke_with_terminate(

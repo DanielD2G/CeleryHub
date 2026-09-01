@@ -1,3 +1,4 @@
+import { clickableRow } from "@/lib/row-nav";
 import { useNavigate } from "react-router-dom";
 import type { WorkflowRun } from "@/lib/types";
 import {
@@ -47,8 +48,7 @@ export function WorkflowRunHistory({
           {runs.map((run) => (
             <TableRow
               key={run.id}
-              className="cursor-pointer"
-              onClick={() => navigate(`/workflows/${workflowId}/runs/${run.id}`)}
+              {...clickableRow(() => navigate(`/workflows/${workflowId}/runs/${run.id}`))}
             >
               <TableCell className="text-sm">{formatWorkflowDate(run.startedAt)}</TableCell>
               <TableCell>

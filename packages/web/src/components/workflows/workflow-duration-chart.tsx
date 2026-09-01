@@ -43,6 +43,13 @@ const STATUS_COLORS: Record<string, string> = {
 export function WorkflowDurationChart({ workflowId }: { workflowId: string }) {
   const [items, setItems] = useState<RunDuration[] | null>(null);
 
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setRefreshTick((v) => v + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     apiGet<RunDurationsResponse>(
@@ -52,7 +59,7 @@ export function WorkflowDurationChart({ workflowId }: { workflowId: string }) {
       .then((res) => setItems(res.items))
       .catch(() => setItems([]));
     return () => controller.abort();
-  }, [workflowId]);
+  }, [workflowId, refreshTick]);
 
   const finished = (items ?? []).filter((r) => r.durationSeconds !== null);
   if (items === null || finished.length < 2) {

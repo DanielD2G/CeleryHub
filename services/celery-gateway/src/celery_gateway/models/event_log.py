@@ -59,3 +59,29 @@ class ExceptionGroupsResponse(CamelModel):
     since: datetime
     until: datetime
     items: list[ExceptionGroupItem]
+
+
+class DailyStatItem(CamelModel):
+    day: str
+    succeeded: int
+    failed: int
+    runtime_avg: float | None
+    runtime_p50: float | None
+    runtime_p95: float | None
+
+
+class ExceptionHistoryItem(CamelModel):
+    task_name: str
+    exception: str
+    count: int
+    first_day: str
+    last_day: str
+    last_seen: str | None
+
+
+class AnomalyItem(CamelModel):
+    kind: str
+    task_name: str
+    task_id: str | None
+    detected_at: str | None
+    detail: str

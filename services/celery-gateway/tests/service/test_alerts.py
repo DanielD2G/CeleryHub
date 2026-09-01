@@ -143,3 +143,69 @@ async def test_dead_mans_switch_ignores_disabled_and_unset(db_session):
     with patch.object(alerts, "fire", new=AsyncMock(return_value=1)) as f:
         await alerts._check_dead_mans_switches()
     f.assert_not_awaited()
+
+
+class _FakeState:
+    """app.state stand-in exposing the real CeleryCache API surface."""
+
+    class _Cache:
+        def __init__(self, data):
+            self._data = data
+
+        async def get(self, key: str):
+            assert key == "worker-inspect", f"unexpected cache key {key}"
+            return self._data
+
+    def __init__(self, data):
+        self.celery_cache = self._Cache(data)
+
+
+@pytest.mark.asyncio
+async def test_worker_offline_fires_on_drop(db_session, monkeypatch):
+    """The bug this guards: _check_workers must use the real cache API
+    (get('worker-inspect')), not a nonexistent get_workers()."""
+    monkeypatch.setattr(alerts, "_last_worker_count", 2)
+    with patch.object(alerts, "fire", new=AsyncMock(return_value=1)) as f:
+        await alerts._check_workers(
+            _FakeState({"stats": {"celery@a": {}}})
+        )
+    f.assert_awaited_once()
+    assert f.await_args.args[0] == alerts.RULE_WORKER_OFFLINE
+    assert "2 to 1" in f.await_args.args[2]
+
+
+@pytest.mark.asyncio
+async def test_worker_offline_quiet_on_inspect_failure(db_session, monkeypatch):
+    """Inspect failure means 'unknown', never 'zero workers'."""
+    monkeypatch.setattr(alerts, "_last_worker_count", 2)
+    with patch.object(alerts, "fire", new=AsyncMock(return_value=1)) as f:
+        await alerts._check_workers(_FakeState({}))  # no "stats" key
+        await alerts._check_workers(_FakeState(None))
+    f.assert_not_awaited()
+    assert alerts._last_worker_count == 2  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_worker_offline_quiet_on_stable_or_growth(db_session, monkeypatch):
+    monkeypatch.setattr(alerts, "_last_worker_count", None)
+    with patch.object(alerts, "fire", new=AsyncMock(return_value=1)) as f:
+        await alerts._check_workers(_FakeState({"stats": {"a": {}}}))       # first sample
+        await alerts._check_workers(_FakeState({"stats": {"a": {}, "b": {}}}))  # growth
+        await alerts._check_workers(_FakeState({"stats": {"a": {}, "b": {}}}))  # stable
+    f.assert_not_awaited()
+    assert alerts._last_worker_count == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_delivery_does_not_start_cooldown(db_session):
+    """A webhook outage must not silence the alert for the cooldown window."""
+    await _mk_channel(db_session, rules={"workflow_failed": {"enabled": True}})
+    with patch.object(
+        alerts, "_deliver", new=AsyncMock(return_value=(False, "HTTP 500"))
+    ):
+        assert await alerts.fire("workflow_failed", "wf-cd", "boom") == 0
+    # Channel recovers: the very next fire goes through, no 30-min wait.
+    with patch.object(alerts, "_deliver", new=AsyncMock(return_value=(True, None))):
+        assert await alerts.fire("workflow_failed", "wf-cd", "boom") == 1
+        # And now the cooldown IS active.
+        assert await alerts.fire("workflow_failed", "wf-cd", "boom") == 0

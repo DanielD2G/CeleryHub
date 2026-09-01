@@ -10,14 +10,13 @@ from typing import Any
 import httpx
 from sqlalchemy import select, text
 
+from ..config import settings
 from ..db import get_session
 from ..db.models import AlertChannel, AlertEvent, Workflow
 
 logger = logging.getLogger(__name__)
 
-_CHECK_INTERVAL_S = 30.0
-_COOLDOWN_S = 1800  # don't re-fire the same (rule, subject) within 30 min
-_HTTP_TIMEOUT = 10.0
+# Tunables live in Settings (env-overridable); see config.py.
 
 # Rule names — each channel opts into a subset via its `rules` JSON:
 #   {"workflow_failed": {"enabled": true}, "persister_lag": {"enabled": true, "threshold": 1000}, ...}
@@ -69,7 +68,7 @@ async def _deliver(channel: AlertChannel, rule: str, subject: str, message: str)
     try:
         config = json.loads(channel.config or "{}")
         url, body = _format_payload(channel.kind, config, rule, subject, message)
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=settings.celeryhub_alerts_http_timeout_s) as client:
             resp = await client.post(url, json=body)
             if resp.status_code >= 400:
                 return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
@@ -91,12 +90,17 @@ def _rule_config(channel: AlertChannel, rule: str) -> dict[str, Any] | None:
 
 
 async def _in_cooldown(session: Any, rule: str, subject: str) -> bool:
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=_COOLDOWN_S)
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        seconds=settings.celeryhub_alerts_cooldown_s
+    )
+    # Only a DELIVERED alert starts the cooldown — a failed webhook must not
+    # silence subsequent attempts for 30 minutes.
     row = await session.scalar(
         select(AlertEvent.id)
         .where(
             AlertEvent.rule == rule,
             AlertEvent.subject == subject,
+            AlertEvent.delivered == True,  # noqa: E712
             AlertEvent.fired_at >= cutoff,
         )
         .limit(1)
@@ -152,12 +156,21 @@ async def fire(rule: str, subject: str, message: str) -> int:
         return sent
 
 
+_pending_fires: set[asyncio.Task[Any]] = set()
+
+
 def fire_and_forget(rule: str, subject: str, message: str) -> None:
-    """Schedule an alert without blocking the caller (used from the engine)."""
+    """Schedule an alert without blocking the caller (used from the engine).
+
+    The task reference is retained until done — the loop alone only holds a
+    weak reference and the task could be garbage-collected mid-flight.
+    """
     try:
-        asyncio.get_running_loop().create_task(fire(rule, subject, message))
+        task = asyncio.get_running_loop().create_task(fire(rule, subject, message))
     except RuntimeError:
-        pass  # no loop (tests calling sync paths)
+        return  # no loop (tests calling sync paths)
+    _pending_fires.add(task)
+    task.add_done_callback(_pending_fires.discard)
 
 
 # ---------------------------------------------------------------------------
@@ -204,10 +217,15 @@ async def _check_workers(app_state: Any) -> None:
     global _last_worker_count
     try:
         cache = app_state.celery_cache
-        workers = await cache.get_workers()
-        count = len(workers) if workers else 0
+        data = await cache.get("worker-inspect")
     except Exception:
+        logger.warning("[CeleryHub Alerts] worker-inspect lookup failed", exc_info=True)
         return
+    stats = (data or {}).get("stats")
+    if stats is None:
+        # inspect itself failed — unknown, not zero; don't false-alarm.
+        return
+    count = len(stats)
     if _last_worker_count is not None and count < _last_worker_count:
         await fire(
             RULE_WORKER_OFFLINE,
@@ -225,6 +243,7 @@ async def _check_persister_lag() -> None:
     try:
         groups = await get_redis().xinfo_groups(EVENTS_STREAM_KEY)
     except Exception:
+        logger.warning("[CeleryHub Alerts] xinfo_groups failed", exc_info=True)
         return
     for g in groups:
         name = g.get("name")
@@ -234,9 +253,7 @@ async def _check_persister_lag() -> None:
             continue
         lag = g.get("lag") or 0
         pending = g.get("pending") or 0
-        # Default threshold; channels can raise it per-rule but the loop uses
-        # a floor to avoid evaluating channel configs here.
-        if int(lag) + int(pending) > 1000:
+        if int(lag) + int(pending) > settings.celeryhub_persister_lag_threshold:
             await fire(
                 RULE_PERSISTER_LAG,
                 "persister",
@@ -262,7 +279,7 @@ async def _alerts_loop(app: Any) -> None:
                 raise
             except Exception:
                 logger.exception("[CeleryHub Alerts] Check cycle failed")
-            await asyncio.sleep(_CHECK_INTERVAL_S)
+            await asyncio.sleep(settings.celeryhub_alerts_check_interval_s)
     except asyncio.CancelledError:
         logger.info("[CeleryHub Alerts] Stopped")
 

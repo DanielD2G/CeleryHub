@@ -12,6 +12,15 @@ class Settings(BaseSettings):
     celeryhub_auth_token: str = ""
     celeryhub_events_stream_maxlen: int = 1_000_000
     celeryhub_events_retention_days: int = 30
+    # Alerting
+    celeryhub_alerts_check_interval_s: float = 30.0
+    celeryhub_alerts_cooldown_s: int = 1800
+    celeryhub_alerts_http_timeout_s: float = 10.0
+    celeryhub_persister_lag_threshold: int = 1000
+    celeryhub_alert_events_retention_days: int = 90
+    # Anomaly detection
+    celeryhub_anomaly_runtime_factor: float = 3.0
+    celeryhub_anomaly_consecutive_failures: int = 5
     static_dir: str | None = None
     port: int = 3000
 

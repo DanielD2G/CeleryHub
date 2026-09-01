@@ -574,3 +574,33 @@ class TestUsingTask:
         assert "uses-mytask" in names
         resp = await client.get("/api/workflows/using-task/not_a_task")
         assert resp.json() == []
+
+
+class TestDuplicatePreservesRetryPolicy:
+    async def test_duplicate_keeps_retry_fields(self, client: AsyncClient) -> None:
+        step = _make_step()
+        step["maxRetries"] = 3
+        step["retryDelaySeconds"] = 45
+        step["timeoutSeconds"] = 600
+        wf = await _create_interval_workflow(client, name="dup-retry", steps=[step])
+
+        resp = await client.post(f"/api/workflows/{wf['id']}/duplicate")
+        assert resp.status_code in (200, 201)
+        dup_id = resp.json()["id"]
+        dup = (await client.get(f"/api/workflows/{dup_id}")).json()
+        s = dup["steps"][0]
+        assert s["maxRetries"] == 3
+        assert s["retryDelaySeconds"] == 45
+        assert s["timeoutSeconds"] == 600
+
+
+class TestErrorShapes:
+    async def test_comparison_404_uses_detail(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/workflows/runs/ghost/comparison")
+        assert resp.status_code == 404
+        assert "detail" in resp.json()
+
+    async def test_retry_409_uses_detail(self, client: AsyncClient) -> None:
+        resp = await client.post("/api/workflows/runs/ghost/retry")
+        assert resp.status_code == 409
+        assert "detail" in resp.json()

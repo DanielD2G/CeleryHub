@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import type { Workflow, WorkflowRun } from "@/lib/types";
@@ -96,7 +97,7 @@ export function WorkflowDetailClient({
       await apiPost(`/api/workflows/${workflow.id}/toggle`);
       onRefresh?.();
     } catch {
-      // ignore
+      toast.error("Request failed — nothing was changed");
     } finally {
       setIsPending(false);
     }
@@ -109,7 +110,7 @@ export function WorkflowDetailClient({
       await apiDelete(`/api/workflows/${workflow.id}`);
       navigate("/workflows");
     } catch {
-      // ignore
+      toast.error("Request failed — nothing was changed");
     } finally {
       setIsPending(false);
     }
@@ -142,7 +143,7 @@ export function WorkflowDetailClient({
         navigate(`/workflows/${result.id}`);
       }
     } catch {
-      // ignore
+      toast.error("Request failed — nothing was changed");
     } finally {
       setIsPending(false);
     }

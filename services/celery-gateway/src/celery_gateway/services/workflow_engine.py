@@ -25,6 +25,15 @@ _RETRIED_STATUS = "RETRIED"
 
 _workflow_run_locks: dict[str, asyncio.Lock] = {}
 _timeout_tasks: dict[str, asyncio.Task[None]] = {}
+# Fire-and-forget tasks (retries) need a strong reference until done — the
+# event loop alone holds only a weak one.
+_background_tasks: set[asyncio.Task[None]] = set()
+
+
+def _spawn(coro: Any) -> None:
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 def _get_run_lock(workflow_run_id: str) -> asyncio.Lock:
@@ -145,7 +154,12 @@ async def on_task_completed(
                             delay,
                             failed_names,
                         )
-                        asyncio.create_task(
+                        # Timeout budget is per attempt: disarm the current
+                        # timer; _retry_step_tasks re-arms it after dispatch.
+                        stale_timer = _timeout_tasks.pop(step_run.id, None)
+                        if stale_timer is not None:
+                            stale_timer.cancel()
+                        _spawn(
                             _retry_step_tasks(
                                 step_run.id, step_def.id, failed_names, delay
                             )
@@ -208,7 +222,15 @@ async def _retry_step_tasks(
                     sent_at=datetime.now(timezone.utc),
                 )
             )
+        workflow_run_id = step_run.workflow_run_id
+        timeout_seconds = step_def.timeout_seconds
         await session.commit()
+
+    # Fresh timeout for this attempt.
+    if timeout_seconds and timeout_seconds > 0:
+        _timeout_tasks[step_run_id] = asyncio.create_task(
+            _handle_step_timeout(step_run_id, workflow_run_id, timeout_seconds)
+        )
 
 
 async def cancel_workflow_run(workflow_run_id: str) -> bool:
@@ -538,3 +560,63 @@ async def retry_workflow_run(workflow_run_id: str) -> bool:
 
     await _advance_workflow(workflow_run_id)
     return True
+
+
+async def resume_running_workflows() -> None:
+    """Recover in-flight runs after a restart.
+
+    Timeout timers and run locks live in process memory; without this pass a
+    step that was "running" when the process died stays running forever and
+    its run never terminates. For each running step: re-arm the timeout with
+    whatever budget remains (expiring immediately if none), then re-advance
+    every running run.
+    """
+    async with get_session() as session:
+        result = await session.execute(
+            select(WorkflowRun)
+            .options(selectinload(WorkflowRun.step_runs))
+            .where(WorkflowRun.status == "running")
+        )
+        running = list(result.scalars().all())
+        if not running:
+            return
+
+        step_ids = [
+            sr.step_id for run in running for sr in run.step_runs
+            if sr.status == "running"
+        ]
+        defs: dict[str, WorkflowStep] = {}
+        if step_ids:
+            defs = {
+                d.id: d
+                for d in (
+                    await session.execute(
+                        select(WorkflowStep).where(WorkflowStep.id.in_(step_ids))
+                    )
+                ).scalars()
+            }
+
+    logger.info(
+        "[CeleryHub Engine] Resuming %d in-flight workflow run(s) after restart",
+        len(running),
+    )
+    now = datetime.now(timezone.utc)
+    for run in running:
+        for sr in run.step_runs:
+            if sr.status != "running":
+                continue
+            step_def = defs.get(sr.step_id)
+            timeout = step_def.timeout_seconds if step_def else None
+            if not timeout or timeout <= 0:
+                continue
+            elapsed = (
+                (now - sr.started_at).total_seconds() if sr.started_at else 0.0
+            )
+            remaining = timeout - elapsed
+            if remaining <= 0:
+                await _expire_step(sr.id, run.id, timeout)
+            else:
+                _timeout_tasks[sr.id] = asyncio.create_task(
+                    _handle_step_timeout(sr.id, run.id, int(remaining))
+                )
+        await _advance_workflow(run.id)

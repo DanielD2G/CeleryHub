@@ -1,3 +1,5 @@
+import { clickableRow } from "@/lib/row-nav";
+import { formatDurationSeconds } from "@/lib/workflow-utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useCelery } from "@/hooks/use-celery";
@@ -224,8 +226,7 @@ export default function HistoryPage() {
               {paginated.map((task) => (
                 <TableRow
                   key={task.taskId}
-                  className="cursor-pointer"
-                  onClick={() => setSelected(task)}
+                  {...clickableRow(() => setSelected(task))}
                 >
                   <TableCell className="truncate font-medium">
                     <Link
@@ -263,7 +264,7 @@ export default function HistoryPage() {
                   </TableCell>
                   <TableCell className="truncate font-mono text-xs">
                     {task.runtime != null
-                      ? `${task.runtime.toFixed(3)}s`
+                      ? formatDurationSeconds(task.runtime)
                       : "—"}
                   </TableCell>
                   <TableCell className="truncate text-xs text-muted-foreground">
@@ -296,8 +297,8 @@ export default function HistoryPage() {
                       <PaginationItem key={p}>
                         <PaginationLink
                           isActive={p === currentPage}
-                          onClick={() => setPage(p)}
                           className="cursor-pointer"
+                          onClick={() => setPage(p)}
                         >
                           {p}
                         </PaginationLink>

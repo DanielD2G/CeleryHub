@@ -1,3 +1,5 @@
+import { clickableRow } from "@/lib/row-nav";
+import { toast } from "sonner";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { WorkflowSummary } from "@/lib/types";
@@ -67,7 +69,7 @@ export function WorkflowTable({
       await apiPost(`/api/workflows/${id}/toggle`);
       onRefresh?.();
     } catch {
-      // ignore
+      toast.error("Request failed — nothing was changed");
     } finally {
       setTogglingId(null);
     }
@@ -102,8 +104,7 @@ export function WorkflowTable({
           {workflows.map((wf) => (
             <TableRow
               key={wf.id}
-              className="cursor-pointer"
-              onClick={() => navigate(`/workflows/${wf.id}`)}
+              {...clickableRow(() => navigate(`/workflows/${wf.id}`))}
             >
               <TableCell className="font-medium">
                 <div>

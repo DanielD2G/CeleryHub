@@ -273,9 +273,17 @@ async def _subscribe_once() -> None:
                         try:
                             fn(event)
                         except Exception:
-                            pass
+                            logger.warning(
+                                "[CeleryHub EventCollector] Listener raised",
+                                exc_info=True,
+                            )
             except Exception:
-                pass
+                # A failed event must not kill the subscription, but a silent
+                # drop hides serialization and engine bugs for entire releases.
+                logger.warning(
+                    "[CeleryHub EventCollector] Failed to process event",
+                    exc_info=True,
+                )
     finally:
         try:
             await pubsub.punsubscribe(pattern)

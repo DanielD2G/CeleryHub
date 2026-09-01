@@ -63,6 +63,13 @@ export function TaskHistoryPanel({ taskName }: { taskName: string }) {
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
   const [workflows, setWorkflows] = useState<UsingWorkflow[]>([]);
 
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setRefreshTick((v) => v + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     const enc = encodeURIComponent(taskName);
@@ -88,7 +95,7 @@ export function TaskHistoryPanel({ taskName }: { taskName: string }) {
       .then(setWorkflows)
       .catch(() => {});
     return () => controller.abort();
-  }, [taskName]);
+  }, [taskName, refreshTick]);
 
   const hasSeries = (daily ?? []).some((d) => d.succeeded + d.failed > 0);
 

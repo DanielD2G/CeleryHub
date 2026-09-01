@@ -1,5 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import {
+  ScrollText,
+  Settings,
   Bell,
   LayoutDashboard,
   Server,
@@ -39,6 +41,7 @@ const navSections = [
       { href: "/tasks", label: "Tasks", icon: ListTodo },
       { href: "/active", label: "Active", icon: Play },
       { href: "/history", label: "Results", icon: History },
+      { href: "/events", label: "Event Log", icon: ScrollText },
       { href: "/send", label: "Manual Send", icon: Send },
     ],
   },
@@ -54,6 +57,7 @@ const navSections = [
     items: [
       { href: "/workers", label: "Workers", icon: Server },
       { href: "/queues", label: "Queues", icon: Inbox },
+      { href: "/settings", label: "Settings", icon: Settings },
     ],
   },
 ];

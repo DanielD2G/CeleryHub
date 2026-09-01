@@ -37,9 +37,19 @@ function DeltaLabel({ delta, baseline }: { delta: number | null; baseline: numbe
   );
 }
 
-export function RunComparison({ runId, finished }: { runId: string; finished: boolean }) {
+export function RunComparison({
+  runId,
+  finished,
+  refreshKey,
+}: {
+  runId: string;
+  finished: boolean;
+  refreshKey?: string;
+}) {
   const [cmp, setCmp] = useState<Comparison | null>(null);
 
+  // refreshKey (e.g. the run status) re-fires the fetch on transitions like
+  // running -> failed -> retried, so the panel never shows stale numbers.
   useEffect(() => {
     if (!finished) return;
     const controller = new AbortController();
@@ -47,7 +57,7 @@ export function RunComparison({ runId, finished }: { runId: string; finished: bo
       .then(setCmp)
       .catch(() => {});
     return () => controller.abort();
-  }, [runId, finished]);
+  }, [runId, finished, refreshKey]);
 
   if (!cmp || !cmp.steps.some((s) => s.baselineRuns > 0)) return null;
 
