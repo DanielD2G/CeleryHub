@@ -12,37 +12,37 @@ services:
       retries: 5
     restart: unless-stopped
 
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: celeryhub
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   celeryhub:
     build: .
     ports:
       - "3000:3000"
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
-      CELERYHUB_DB_PATH: /app/data/celeryhub.db
-    volumes:
-      - celeryhub-data:/app/data
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/celeryhub
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
-
-  # ── Uncomment to use PostgreSQL instead of SQLite ──
-  # postgres:
-  #   image: postgres:17-alpine
-  #   environment:
-  #     POSTGRES_USER: celeryhub
-  #     POSTGRES_PASSWORD: celeryhub
-  #     POSTGRES_DB: celeryhub
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - postgres-data:/var/lib/postgresql/data
-  #
-  # Then add to celeryhub.environment:
-  #   DATABASE_URL: postgres://celeryhub:celeryhub@postgres:5432/celeryhub
-  # And add postgres to celeryhub.depends_on
 
 volumes:
   redis-data:
-  celeryhub-data:
-  # postgres-data:
+  pgdata:

@@ -18,6 +18,20 @@ from sqlalchemy.ext.asyncio import (
 from celery_gateway.db.models import Base
 from celery_gateway.services.cache import CeleryCache
 from celery_gateway.services.inspect_cache import InspectCache
+from tests._db import test_database_url
+
+
+# ---------------------------------------------------------------------------
+# Partition cache reset (prevents cross-test staleness)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clear_partition_cache() -> None:
+    """Clear the process-local partition cache before every test so schema
+    rebuilds performed by db_engine are not masked by a stale in-memory set."""
+    from celery_gateway.services import event_persister
+    event_persister._ensured_partitions.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -27,10 +41,24 @@ from celery_gateway.services.inspect_cache import InspectCache
 
 @pytest.fixture
 async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
-    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    from sqlalchemy import text
+    from celery_gateway.db.events_ddl import (
+        CELERY_EVENTS_STATEMENTS,
+        DROP_CELERY_EVENTS,
+    )
+
+    engine = create_async_engine(test_database_url(), echo=False)
+    _regular = [t for t in Base.metadata.sorted_tables if t.name != "celery_events"]
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text(DROP_CELERY_EVENTS))
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=_regular))
+        for statement in CELERY_EVENTS_STATEMENTS:
+            await conn.execute(text(statement))
     yield engine
+    async with engine.begin() as conn:
+        await conn.execute(text(DROP_CELERY_EVENTS))
+        await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
 
@@ -51,6 +79,10 @@ async def db_session(
         patch("celery_gateway.services.scheduler.get_session", _override_get_session),
         patch("celery_gateway.services.workflow_engine.get_session", _override_get_session),
         patch("celery_gateway.services.event_collector.get_session", _override_get_session),
+        patch("celery_gateway.services.event_persister.get_session", _override_get_session),
+        patch("celery_gateway.services.retention.get_session", _override_get_session),
+        patch("celery_gateway.services.settings_store.get_session", _override_get_session),
+        patch("celery_gateway.routers.event_log.get_session", _override_get_session),
     ):
         async with factory() as session:
             yield session

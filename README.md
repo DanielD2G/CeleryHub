@@ -68,7 +68,7 @@ CeleryHub runs as a **single service** — FastAPI serves the REST API, SSE even
 ┌────────────────────▼────────────────────────────┐
 │           FastAPI Server (Python)                │
 │   REST API · SSE stream · Workflow scheduler     │
-│   Static SPA · SQLite · Redis pub/sub · Celery   │
+│   Static SPA · PostgreSQL · Redis pub/sub · Celery │
 └────────────────────┬────────────────────────────┘
                      │
               ┌──────▼──────┐
@@ -86,7 +86,7 @@ CeleryHub runs as a **single service** — FastAPI serves the REST API, SSE even
 |---|---|
 | Frontend | React 19, Vite, React Router v7, shadcn/ui, Recharts, Tailwind CSS v4 |
 | Backend | FastAPI, Celery, SQLAlchemy 2.0 async, Pydantic, redis.asyncio |
-| Database | SQLite (aiosqlite) |
+| Database | PostgreSQL (asyncpg + Alembic) |
 | Broker | Redis |
 
 ## Quick Start
@@ -99,23 +99,21 @@ The fastest way to get CeleryHub running:
 docker compose up
 ```
 
-This starts Redis and CeleryHub (with SQLite for persistence). Open [http://localhost:3000](http://localhost:3000) in your browser.
+This starts Redis, PostgreSQL, and CeleryHub. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 > **Note:** You still need Celery workers connected to the same Redis. Point your workers at `redis://localhost:6379/0`.
 
 ### Docker (standalone)
 
-If you already have Redis running:
+If you already have Redis and PostgreSQL running:
 
 ```bash
 make docker
 docker run \
   -e CELERY_BROKER_URL=redis://your-redis:6379/0 \
-  -v celeryhub-data:/app/data \
+  -e DATABASE_URL=postgresql+asyncpg://postgres:postgres@your-pg:5432/celeryhub \
   -p 3000:3000 celeryhub
 ```
-
-CeleryHub uses SQLite by default (persisted at `/app/data/celeryhub.db`).
 
 The Docker image bundles the FastAPI backend and React app into a single container, serving everything on port **3000**.
 
@@ -132,6 +130,7 @@ docker pull ghcr.io/danield2g/celeryhub:latest
 - [Python](https://www.python.org/) >= 3.11 with [uv](https://docs.astral.sh/uv/)
 - [Node.js](https://nodejs.org/) >= 18 (for the frontend build)
 - A running Redis instance (used as Celery broker)
+- A running PostgreSQL 16+ instance (used for workflow storage)
 - Celery workers connected to that Redis
 
 #### Install
@@ -142,20 +141,33 @@ make install
 
 This installs the frontend npm packages and the Python gateway dependencies.
 
+#### Database
+
+CeleryHub requires **PostgreSQL 16+** for workflow and schedule persistence. Set `DATABASE_URL` to point at your Postgres instance before starting the server.
+
+Before the first start (and after pulling new migrations), apply the schema:
+
+```bash
+cd services/celery-gateway
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/celeryhub alembic upgrade head
+```
+
+The Docker image entrypoint runs `alembic upgrade head` automatically on boot, so no manual step is needed when using Docker Compose.
+
 #### Configure
 
 Copy the example env file and edit it:
 
 ```bash
-cp .env.example .env.local
+cp services/celery-gateway/.env.example services/celery-gateway/.env
 ```
 
-See [`.env.example`](.env.example) for all available variables.
+See [`services/celery-gateway/.env.example`](services/celery-gateway/.env.example) for all available variables.
 
 | Variable | Default | Description |
 |---|---|---|
 | `CELERY_BROKER_URL` | — | Redis URL for the Celery broker **(required)** |
-| `CELERYHUB_DB_PATH` | `./data/celeryhub.db` | SQLite database path |
+| `DATABASE_URL` | — | PostgreSQL async URL **(required)** |
 | `CELERY_RESULT_BACKEND` | same as broker | Redis URL for task results |
 | `PORT` | `3000` | Server port (API + frontend) |
 | `CELERYHUB_TASK_TTL` | `604800` (7 days) | Redis TTL in seconds for task metadata. `0` = no expiration |

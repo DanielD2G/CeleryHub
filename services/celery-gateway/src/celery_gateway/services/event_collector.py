@@ -16,6 +16,8 @@ from .redis_client import create_subscriber, get_db_number, get_redis
 
 logger = logging.getLogger(__name__)
 
+EVENTS_STREAM_KEY = "celeryhub:events:stream"
+
 _TASK_META_KEY = "celeryhub:tasks"
 _ACTIVE_SET_KEY = "celeryhub:active-tasks"
 _COMPLETED_ZSET_KEY = "celeryhub:completed"
@@ -163,6 +165,25 @@ async def _persist_event(event: dict[str, Any]) -> None:
         pipe.srem(_ACTIVE_SET_KEY, uuid)
         _pipe_index_completed(pipe, uuid, timestamp)
         await pipe.execute()
+
+    await _publish_to_stream(event)
+
+
+async def _publish_to_stream(event: dict[str, Any]) -> None:
+    redis = get_redis()
+    try:
+# MAXLEN is an approximate cap that bounds the buffer. Under a sustained
+# Postgres/persister outage, once the un-persisted backlog exceeds the cap
+# (~1M entries), the oldest un-persisted events are trimmed and permanently
+# lost. At-least-once durability holds only within the buffer window.
+        await redis.xadd(
+            EVENTS_STREAM_KEY,
+            {"data": json.dumps(event)},
+            maxlen=settings.celeryhub_events_stream_maxlen,
+            approximate=True,
+        )
+    except Exception:
+        logger.warning("[CeleryHub EventCollector] Failed to enqueue event to stream")
 
 
 async def _update_run_status(

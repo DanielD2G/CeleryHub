@@ -7,9 +7,11 @@ class Settings(BaseSettings):
     inspect_timeout: float = 5.0
     inspect_cache_ttl: float = 3.0
     cors_origins: list[str] = []
-    celeryhub_db_path: str = "./data/celeryhub.db"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/celeryhub"
     celeryhub_task_ttl: int = 604800
     celeryhub_auth_token: str = ""
+    celeryhub_events_stream_maxlen: int = 1_000_000
+    celeryhub_events_retention_days: int = 30
     static_dir: str | None = None
     port: int = 3000
 

@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -158,3 +159,38 @@ class TaskRun(Base):
         Index("idx_task_runs_step_run_id", "step_run_id"),
         Index("idx_task_runs_task_id", "task_id"),
     )
+
+
+class CeleryEvent(Base):
+    __tablename__ = "celery_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, autoincrement=True)
+    event_uid: Mapped[str] = mapped_column(String, nullable=False)
+    event_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    task_id: Mapped[str | None] = mapped_column(String, default=None)
+    task_name: Mapped[str | None] = mapped_column(String, default=None)
+    hostname: Mapped[str | None] = mapped_column(String, default=None)
+    queue: Mapped[str | None] = mapped_column(String, default=None)
+    runtime: Mapped[float | None] = mapped_column(Float, default=None)
+    result: Mapped[str | None] = mapped_column(Text, default=None)
+    exception: Mapped[str | None] = mapped_column(Text, default=None)
+    traceback: Mapped[str | None] = mapped_column(Text, default=None)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    # Composite PK includes the partition key (required by Postgres for
+    # partitioned tables). The actual DDL is authored in the migration;
+    # this mapping exists so ORM reads/inserts work.
+    __mapper_args__ = {"primary_key": [id, event_time]}
+
+
+class Setting(Base):
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(String, nullable=False)
