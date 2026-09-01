@@ -181,3 +181,109 @@ async def event_log_exceptions(
         for r in rows
     ]
     return ExceptionGroupsResponse(since=since_dt, until=until_dt, items=items)
+
+
+@router.get("/event-log/stats/daily")
+async def event_log_stats_daily(
+    task_name: str = Query(alias="taskName"),
+    days: int = Query(default=30, ge=1, le=365),
+) -> list[dict]:
+    """Per-day series for one task: counts and runtime percentiles.
+
+    Feeds the task-detail sparkline and failure-rate chart.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    stmt = text(
+        """
+        SELECT
+            (event_time AT TIME ZONE 'UTC')::date AS day,
+            count(*) FILTER (WHERE event_type = 'task-succeeded') AS succeeded,
+            count(*) FILTER (WHERE event_type = 'task-failed')    AS failed,
+            avg(runtime)  FILTER (WHERE event_type = 'task-succeeded') AS runtime_avg,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY runtime)
+                FILTER (WHERE event_type = 'task-succeeded') AS runtime_p50,
+            percentile_cont(0.95) WITHIN GROUP (ORDER BY runtime)
+                FILTER (WHERE event_type = 'task-succeeded') AS runtime_p95
+        FROM celery_events
+        WHERE task_name = :task_name AND event_time >= :since
+        GROUP BY 1
+        ORDER BY 1
+        """
+    )
+    async with get_session() as session:
+        rows = (
+            await session.execute(stmt, {"task_name": task_name, "since": since})
+        ).mappings().all()
+    return [
+        {
+            "day": r["day"].isoformat(),
+            "succeeded": r["succeeded"] or 0,
+            "failed": r["failed"] or 0,
+            "runtimeAvg": r["runtime_avg"],
+            "runtimeP50": r["runtime_p50"],
+            "runtimeP95": r["runtime_p95"],
+        }
+        for r in rows
+    ]
+
+
+@router.get("/event-log/exceptions/history")
+async def exception_history(
+    task_name: str | None = Query(default=None, alias="taskName"),
+    days: int = Query(default=365, ge=1, le=730),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[dict]:
+    """Long-horizon exception history from the daily rollup table, which
+    outlives celery_events retention."""
+    since = datetime.now(timezone.utc).date() - timedelta(days=days)
+    sql = """
+        SELECT task_name, signature,
+               sum(count) AS total,
+               min(day) AS first_day, max(day) AS last_day,
+               max(last_seen) AS last_seen
+        FROM exception_rollup
+        WHERE day >= :since
+    """
+    params: dict = {"since": since, "limit": limit}
+    if task_name:
+        sql += " AND task_name = :task_name"
+        params["task_name"] = task_name
+    sql += """
+        GROUP BY task_name, signature
+        ORDER BY total DESC, last_seen DESC
+        LIMIT :limit
+    """
+    async with get_session() as session:
+        rows = (await session.execute(text(sql), params)).mappings().all()
+    return [
+        {
+            "taskName": r["task_name"],
+            "exception": r["signature"],
+            "count": int(r["total"]),
+            "firstDay": r["first_day"].isoformat(),
+            "lastDay": r["last_day"].isoformat(),
+            "lastSeen": r["last_seen"].isoformat() if r["last_seen"] else None,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/event-log/anomalies")
+async def event_log_anomalies() -> list[dict]:
+    """Active anomalies: runs far above their own p95, and failure streaks."""
+    from ..services.anomalies import detect_anomalies
+
+    out = []
+    for a in await detect_anomalies():
+        out.append(
+            {
+                "kind": a["kind"],
+                "taskName": a["task_name"],
+                "taskId": a["task_id"],
+                "detectedAt": a["detected_at"].isoformat()
+                if a["detected_at"]
+                else None,
+                "detail": a["detail"],
+            }
+        )
+    return out

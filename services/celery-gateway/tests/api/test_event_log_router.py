@@ -135,3 +135,50 @@ async def test_exceptions_grouped_by_signature(client, db_session: AsyncSession)
     assert top["count"] == 3
     assert top["taskName"] == "tasks.boom"
     assert top["sampleTaskId"] is not None
+
+
+@pytest.mark.asyncio
+async def test_daily_stats_series(client, db_session: AsyncSession):
+    for i, rt in enumerate([1.0, 2.0]):
+        await _insert_full_event(
+            db_session, f"d{i}", "tasks.daily", "task-succeeded", runtime=rt
+        )
+    await _insert_full_event(db_session, "d9", "tasks.daily", "task-failed")
+
+    resp = await client.get("/api/event-log/stats/daily?taskName=tasks.daily")
+    assert resp.status_code == 200
+    days = resp.json()
+    assert len(days) == 1
+    assert days[0]["succeeded"] == 2
+    assert days[0]["failed"] == 1
+    assert days[0]["runtimeP50"] == pytest.approx(1.5)
+
+
+@pytest.mark.asyncio
+async def test_exception_history_reads_rollup(client, db_session: AsyncSession):
+    from celery_gateway.services.exception_rollup import rollup_once
+
+    await _insert_full_event(
+        db_session, "eh1", "tasks.hist", "task-failed",
+        exception="RuntimeError: kaput\ndetail",
+    )
+    await rollup_once()
+
+    resp = await client.get("/api/event-log/exceptions/history")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 1
+    assert items[0]["exception"] == "RuntimeError: kaput"
+    assert items[0]["count"] == 1
+
+    resp = await client.get(
+        "/api/event-log/exceptions/history?taskName=tasks.other"
+    )
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_anomalies_endpoint_shape(client, db_session: AsyncSession):
+    resp = await client.get("/api/event-log/anomalies")
+    assert resp.status_code == 200
+    assert resp.json() == []
