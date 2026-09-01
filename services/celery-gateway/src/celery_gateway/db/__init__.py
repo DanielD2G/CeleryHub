@@ -25,6 +25,12 @@ async def init_db() -> None:
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
 
+def get_engine() -> AsyncEngine:
+    if _engine is None:
+        raise RuntimeError("Database not initialized. Call init_db() first.")
+    return _engine
+
+
 @asynccontextmanager
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     if _session_factory is None:
