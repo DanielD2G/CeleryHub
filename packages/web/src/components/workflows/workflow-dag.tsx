@@ -143,9 +143,9 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
     );
 
     return (
-      <div className="relative rounded-lg border bg-muted/30">
+      <div className="relative min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/30">
         <_ZoomControls zoom={currentZoom} onZoomIn={zoomIn} onZoomOut={zoomOut} />
-        <div className="overflow-auto p-4">
+        <div className="max-h-[70vh] overflow-auto overscroll-contain p-4">
           <div
             style={{
               width: stackContentWidth * currentZoom,
@@ -229,9 +229,9 @@ export function WorkflowDag({ steps, stepRuns, scheduleType }: WorkflowDagProps)
     }));
 
   return (
-    <div className="relative rounded-lg border bg-muted/30">
+    <div className="relative min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/30">
       <_ZoomControls zoom={currentZoom} onZoomIn={zoomIn} onZoomOut={zoomOut} />
-      <div className="overflow-auto p-4">
+      <div className="max-h-[70vh] overflow-auto overscroll-contain p-4">
         <div
           style={{
             width: contentWidth * currentZoom,
