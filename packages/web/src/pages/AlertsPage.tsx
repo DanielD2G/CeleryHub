@@ -85,6 +85,7 @@ export default function AlertsPage() {
   const [allRules, setAllRules] = useState<string[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
+  const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
 
   const refresh = useCallback(() => {
@@ -125,7 +126,8 @@ export default function AlertsPage() {
     });
 
   const submit = async () => {
-    if (!form) return;
+    if (!form || saving) return;
+    setSaving(true);
     const config =
       form.kind === "telegram"
         ? { botToken: form.botToken, chatId: form.chatId }
@@ -153,6 +155,8 @@ export default function AlertsPage() {
       refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save channel");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -299,7 +303,7 @@ export default function AlertsPage() {
               ))}
             </div>
             <div className="flex gap-2">
-              <Button onClick={submit} disabled={!form.name}>
+              <Button onClick={submit} disabled={!form.name || saving}>
                 {form.id ? "Save" : "Create"}
               </Button>
               <Button variant="outline" onClick={() => setForm(null)}>
