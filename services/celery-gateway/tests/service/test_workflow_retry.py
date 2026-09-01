@@ -204,3 +204,152 @@ class TestCancelRevokes:
         args, kwargs = mock_celery.control.revoke.call_args
         assert args[0] == ["tid-inflight"]
         assert kwargs.get("terminate") is True
+
+
+class TestTimeoutRetryInteraction:
+    async def test_retry_rearms_timeout_per_attempt(self, db_session):
+        """The old timer must be disarmed on retry and a fresh one armed
+        after re-dispatch — the budget is per attempt, not per step."""
+        from celery_gateway.services import workflow_engine as we
+
+        wf_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        db_session.add(Workflow(
+            id=wf_id, name="to-retry", schedule_type="none", enabled=True,
+            total_run_count=0, created_at=now, updated_at=now,
+        ))
+        db_session.add(WorkflowStep(
+            id=f"step-{wf_id}", workflow_id=wf_id, label="S",
+            task_names='["my_task"]', args="[]", kwargs="{}", queue="celery",
+            depends_on="[]", condition="all_succeeded",
+            max_retries=1, retry_delay_seconds=0, timeout_seconds=3600,
+        ))
+        await db_session.commit()
+
+        sent: list[str] = []
+
+        async def _dispatch(name, args, kwargs, queue):
+            tid = f"celery-{len(sent)}"
+            sent.append(tid)
+            return tid
+
+        with patch(
+            "celery_gateway.services.workflow_engine.dispatch_task",
+            new=AsyncMock(side_effect=_dispatch),
+        ):
+            run_id = await start_workflow_run(wf_id)
+            step_run = (await db_session.execute(
+                select(StepRun).where(StepRun.workflow_run_id == run_id)
+            )).scalars().one()
+            first_timer = we._timeout_tasks.get(step_run.id)
+            assert first_timer is not None
+
+            await on_task_completed(sent[0], "FAILURE", error="boom")
+            await asyncio.sleep(0.05)
+
+            second_timer = we._timeout_tasks.get(step_run.id)
+            assert second_timer is not None
+            assert second_timer is not first_timer, "timer must be re-armed"
+            assert first_timer.cancelled() or first_timer.done()
+
+            await on_task_completed(sent[1], "SUCCESS")
+        we._timeout_tasks.pop(step_run.id, None)
+
+
+class TestStartupReconciliation:
+    async def test_resume_finishes_run_whose_steps_all_terminal(self, db_session):
+        """A run left 'running' with all steps terminal (process died between
+        step completion and advance) is closed out on resume."""
+        from celery_gateway.services.workflow_engine import resume_running_workflows
+
+        wf_id = _make_workflow(db_session)
+        now = datetime.now(timezone.utc)
+        db_session.add(WorkflowRun(
+            id="rec-1", workflow_id=wf_id, status="running",
+            trigger="manual", started_at=now,
+        ))
+        db_session.add(StepRun(
+            id="rec-sr-1", workflow_run_id="rec-1", step_id=f"step-{wf_id}",
+            step_label="Step 1", status="succeeded",
+            started_at=now, finished_at=now,
+        ))
+        await db_session.commit()
+
+        await resume_running_workflows()
+
+        run = await db_session.get(WorkflowRun, "rec-1")
+        await db_session.refresh(run)
+        assert run.status == "succeeded"
+        assert run.finished_at is not None
+
+    async def test_resume_expires_step_past_its_timeout(self, db_session):
+        from datetime import timedelta
+
+        from celery_gateway.services.workflow_engine import resume_running_workflows
+
+        wf_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        db_session.add(Workflow(
+            id=wf_id, name="rec-timeout", schedule_type="none", enabled=True,
+            total_run_count=0, created_at=now, updated_at=now,
+        ))
+        db_session.add(WorkflowStep(
+            id=f"step-{wf_id}", workflow_id=wf_id, label="S",
+            task_names='["my_task"]', args="[]", kwargs="{}", queue="celery",
+            depends_on="[]", condition="all_succeeded", timeout_seconds=60,
+        ))
+        db_session.add(WorkflowRun(
+            id="rec-2", workflow_id=wf_id, status="running",
+            trigger="manual", started_at=now - timedelta(minutes=10),
+        ))
+        db_session.add(StepRun(
+            id="rec-sr-2", workflow_run_id="rec-2", step_id=f"step-{wf_id}",
+            step_label="S", status="running",
+            started_at=now - timedelta(minutes=10),
+        ))
+        await db_session.commit()
+
+        await resume_running_workflows()
+
+        run = await db_session.get(WorkflowRun, "rec-2")
+        await db_session.refresh(run)
+        assert run.status == "failed"
+        sr = await db_session.get(StepRun, "rec-sr-2")
+        await db_session.refresh(sr)
+        assert sr.status == "failed"
+
+    async def test_resume_rearms_timer_with_remaining_budget(self, db_session):
+        from datetime import timedelta
+
+        from celery_gateway.services import workflow_engine as we
+
+        wf_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        db_session.add(Workflow(
+            id=wf_id, name="rec-rearm", schedule_type="none", enabled=True,
+            total_run_count=0, created_at=now, updated_at=now,
+        ))
+        db_session.add(WorkflowStep(
+            id=f"step-{wf_id}", workflow_id=wf_id, label="S",
+            task_names='["my_task"]', args="[]", kwargs="{}", queue="celery",
+            depends_on="[]", condition="all_succeeded", timeout_seconds=3600,
+        ))
+        db_session.add(WorkflowRun(
+            id="rec-3", workflow_id=wf_id, status="running",
+            trigger="manual", started_at=now - timedelta(minutes=1),
+        ))
+        db_session.add(StepRun(
+            id="rec-sr-3", workflow_run_id="rec-3", step_id=f"step-{wf_id}",
+            step_label="S", status="running",
+            started_at=now - timedelta(minutes=1),
+        ))
+        await db_session.commit()
+
+        await we.resume_running_workflows()
+
+        assert "rec-sr-3" in we._timeout_tasks
+        we._timeout_tasks.pop("rec-sr-3").cancel()
+        run = await db_session.get(WorkflowRun, "rec-3")
+        await db_session.refresh(run)
+        assert run.status == "running"  # still in flight, just re-armed
+

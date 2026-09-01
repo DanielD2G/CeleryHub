@@ -62,6 +62,12 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     singleton_tasks: dict[str, Any] = {}
 
     async def _start_singletons() -> None:
+        from .services.workflow_engine import resume_running_workflows
+
+        try:
+            await resume_running_workflows()
+        except Exception:
+            logger.exception("Failed to resume in-flight workflow runs")
         singleton_tasks["scheduler"] = start_scheduler()
         singleton_tasks["persister"] = start_event_persister()
         singleton_tasks["retention"] = start_retention()
@@ -222,8 +228,11 @@ else:
 
 @app.get("/{path:path}", response_model=None)
 async def spa_catch_all(request: Request, path: str) -> FileResponse | JSONResponse:
+    # Unknown API routes must be JSON 404s, not a 200 with index.html.
+    if path.startswith("api/"):
+        return JSONResponse({"detail": "Not found"}, status_code=404)
     if _static_dir is None:
-        return JSONResponse({"error": "No frontend available"}, status_code=404)
+        return JSONResponse({"detail": "No frontend available"}, status_code=404)
 
     # Try to serve the exact file
     file_path = _static_dir / path
@@ -235,4 +244,4 @@ async def spa_catch_all(request: Request, path: str) -> FileResponse | JSONRespo
     if index.is_file():
         return FileResponse(str(index))
 
-    return JSONResponse({"error": "Not found"}, status_code=404)
+    return JSONResponse({"detail": "Not found"}, status_code=404)
