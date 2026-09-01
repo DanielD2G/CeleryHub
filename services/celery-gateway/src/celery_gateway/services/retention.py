@@ -5,6 +5,9 @@ import logging
 from datetime import datetime, timezone
 
 from ..db import get_session
+from sqlalchemy import text
+
+from ..config import settings as _settings
 from .partitions import drop_partition, list_partitions, partitions_to_drop
 
 logger = logging.getLogger(__name__)
@@ -22,6 +25,22 @@ async def run_retention_once(retention_days: int) -> list[str]:
             await drop_partition(session, name)
     if to_drop:
         logger.info("[CeleryHub Retention] Dropped %d partition(s)", len(to_drop))
+
+    # alert_events doubles as the cooldown table; without pruning it grows one
+    # row per (alert x channel) forever and cooldown scans slow down with it.
+    async with get_session() as session:
+        result = await session.execute(
+            text(
+                "DELETE FROM alert_events WHERE fired_at < "
+                "now() - make_interval(days => :days)"
+            ),
+            {"days": _settings.celeryhub_alert_events_retention_days},
+        )
+        await session.commit()
+        if result.rowcount:
+            logger.info(
+                "[CeleryHub Retention] Pruned %d alert event(s)", result.rowcount
+            )
     return to_drop
 
 

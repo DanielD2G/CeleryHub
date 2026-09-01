@@ -5,12 +5,13 @@ from typing import Any
 
 from sqlalchemy import text
 
+from ..config import settings
 from ..db import get_session
 
 # Thresholds relative to each task's own history — no ML, just "3x its p95"
 # and "failing repeatedly against a low historical failure rate".
-RUNTIME_FACTOR = 3.0
-CONSECUTIVE_FAILURES = 5
+RUNTIME_FACTOR = settings.celeryhub_anomaly_runtime_factor
+CONSECUTIVE_FAILURES = settings.celeryhub_anomaly_consecutive_failures
 HISTORY_DAYS = 30
 RECENT_HOURS = 24
 
