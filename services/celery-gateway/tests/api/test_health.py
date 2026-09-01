@@ -45,3 +45,37 @@ class TestHealth:
 
         assert resp.status_code == 200
         assert resp.json()["version"] == VERSION
+
+    async def test_reports_database_and_persister_fields(
+        self, client: AsyncClient, mock_celery_app: MagicMock
+    ) -> None:
+        with patch("celery_gateway.main.celery_app", mock_celery_app):
+            resp = await client.get("/health")
+
+        data = resp.json()
+        # DB is reachable through the test session factory
+        assert data["database_connected"] is True
+        assert "is_leader" in data
+        assert "persister_pending" in data
+        assert "persister_lag" in data
+        assert "last_event_age_seconds" in data
+
+    async def test_unhealthy_when_database_down(
+        self, client: AsyncClient, mock_celery_app: MagicMock
+    ) -> None:
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _broken():
+            raise RuntimeError("db down")
+            yield  # pragma: no cover
+
+        with (
+            patch("celery_gateway.main.celery_app", mock_celery_app),
+            patch("celery_gateway.main.get_session", _broken),
+        ):
+            resp = await client.get("/health")
+
+        data = resp.json()
+        assert data["database_connected"] is False
+        assert data["status"] == "unhealthy"
