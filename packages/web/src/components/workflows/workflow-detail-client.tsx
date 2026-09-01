@@ -24,6 +24,7 @@ import { WorkflowRunHistory } from "@/components/workflows/workflow-run-history"
 import { WorkflowDag } from "@/components/workflows/workflow-dag";
 import { formatSchedule } from "@/lib/scheduler/cron";
 import { apiPost, apiPut, apiDelete } from "@/lib/api";
+import { WorkflowDurationChart } from "@/components/workflows/workflow-duration-chart";
 import { ArrowLeft, Play, Pencil, Trash2, Loader2, Download, Copy } from "lucide-react";
 
 function _InfoRow({
@@ -406,7 +407,10 @@ export function WorkflowDetailClient({
 
       <div className="space-y-4">
         <h3 className="text-lg font-semibold">Run History</h3>
-        <WorkflowRunHistory runs={runs} workflowId={workflow.id} />
+        <div className="space-y-4">
+          <WorkflowDurationChart workflowId={workflow.id} />
+          <WorkflowRunHistory runs={runs} workflowId={workflow.id} />
+        </div>
       </div>
     </div>
   );
