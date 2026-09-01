@@ -182,3 +182,25 @@ class RunDurationItem(CamelModel):
 class RunDurationsResponse(CamelModel):
     workflow_id: str
     items: list[RunDurationItem]
+
+
+class UsingTaskItem(CamelModel):
+    workflow_id: str
+    workflow_name: str
+    step_label: str
+
+
+class ComparisonStep(CamelModel):
+    step_label: str
+    status: str
+    duration_seconds: float | None
+    baseline_p50_seconds: float | None
+    baseline_runs: int
+    delta_seconds: float | None
+
+
+class ComparisonResponse(CamelModel):
+    run_id: str
+    steps: list[ComparisonStep]
+    total_seconds: float
+    baseline_total_seconds: float

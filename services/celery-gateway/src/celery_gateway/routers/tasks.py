@@ -72,8 +72,17 @@ async def frontend_task_payloads(
     dependencies=[Depends(require_auth)],
 )
 async def frontend_send_task(body: FrontendSendTaskRequest) -> JSONResponse:
-    args: list[Any] = json.loads(body.args)
-    kwargs: dict[str, Any] = json.loads(body.kwargs)
+    try:
+        args: list[Any] = json.loads(body.args)
+        kwargs: dict[str, Any] = json.loads(body.kwargs)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"args/kwargs must be valid JSON: {exc}"
+        ) from exc
+    if not isinstance(args, list) or not isinstance(kwargs, dict):
+        raise HTTPException(
+            status_code=400, detail="args must be a JSON array and kwargs a JSON object"
+        )
     queue = body.queue or "celery"
 
     # Try Celery app first, fall back to direct Redis
@@ -97,9 +106,9 @@ async def frontend_send_task(body: FrontendSendTaskRequest) -> JSONResponse:
             task_id = await send_celery_task(body.task_name, args, kwargs, queue)
             return JSONResponse({"taskId": task_id})
         except Exception as exc:
-            return JSONResponse(
-                {"error": f"Failed to send task: {exc}"}, status_code=500
-            )
+            raise HTTPException(
+                status_code=502, detail=f"Failed to send task: {exc}"
+            ) from exc
 
 
 @router.post(
@@ -122,7 +131,7 @@ async def frontend_revoke_task(
                 signal=revoke_opts.signal,
             ),
         )
-        return JSONResponse({"task_id": task_id, "revoked": True})
+        return JSONResponse({"taskId": task_id, "revoked": True})
     except Exception:
         return JSONResponse({"error": "Failed to revoke task"}, status_code=503)
 
