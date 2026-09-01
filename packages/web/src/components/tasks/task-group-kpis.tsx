@@ -1,3 +1,4 @@
+import { bucketEpoch, bucketLabel } from "@/lib/task-utils";
 import { useMemo } from "react";
 import type { CompletedTaskMeta } from "@/lib/types";
 import {
@@ -33,15 +34,15 @@ interface SparklinePoint {
 
 function _buildThroughputSparkline(history: CompletedTaskMeta[]): SparklinePoint[] {
   if (history.length === 0) return [];
-  const buckets = new Map<string, number>();
+  const buckets = new Map<number, number>();
   for (const task of history) {
     const date = new Date(task.completedAt * 1000);
-    const key = `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
+    const key = bucketEpoch(task.completedAt, 60);
     buckets.set(key, (buckets.get(key) || 0) + 1);
   }
   return Array.from(buckets.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([time, value]) => ({ time, value }));
+    .sort(([a], [b]) => a - b)
+    .map(([epoch, value]) => ({ time: bucketLabel(epoch), value }));
 }
 
 function _buildRuntimeSparkline(history: CompletedTaskMeta[]): SparklinePoint[] {
@@ -49,19 +50,19 @@ function _buildRuntimeSparkline(history: CompletedTaskMeta[]): SparklinePoint[] 
     .filter((t) => t.status === "SUCCESS" && t.runtime != null)
     .sort((a, b) => a.completedAt - b.completedAt);
   if (withRuntime.length < 2) return [];
-  const buckets = new Map<string, { total: number; count: number }>();
+  const buckets = new Map<number, { total: number; count: number }>();
   for (const task of withRuntime) {
     const date = new Date(task.completedAt * 1000);
-    const key = `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
+    const key = bucketEpoch(task.completedAt, 60);
     if (!buckets.has(key)) buckets.set(key, { total: 0, count: 0 });
     const b = buckets.get(key)!;
     b.total += task.runtime!;
     b.count++;
   }
   return Array.from(buckets.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([time, { total, count }]) => ({
-      time,
+    .sort(([a], [b]) => a - b)
+    .map(([epoch, { total, count }]) => ({
+      time: bucketLabel(epoch),
       value: parseFloat((total / count).toFixed(3)),
     }));
 }
@@ -69,20 +70,19 @@ function _buildRuntimeSparkline(history: CompletedTaskMeta[]): SparklinePoint[] 
 function _buildRateSparkline(history: CompletedTaskMeta[]): SparklinePoint[] {
   if (history.length === 0) return [];
   const sorted = [...history].sort((a, b) => a.completedAt - b.completedAt);
-  const buckets = new Map<string, { success: number; total: number }>();
+  const buckets = new Map<number, { success: number; total: number }>();
   for (const task of sorted) {
     const date = new Date(task.completedAt * 1000);
-    const mins = Math.floor(date.getMinutes() / 5) * 5;
-    const key = `${date.getHours().toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}`;
+    const key = bucketEpoch(task.completedAt, 300);
     if (!buckets.has(key)) buckets.set(key, { success: 0, total: 0 });
     const b = buckets.get(key)!;
     b.total++;
     if (task.status === "SUCCESS") b.success++;
   }
   return Array.from(buckets.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([time, { success, total }]) => ({
-      time,
+    .sort(([a], [b]) => a - b)
+    .map(([epoch, { success, total }]) => ({
+      time: bucketLabel(epoch),
       value: total > 0 ? Math.round((success / total) * 100) : 0,
     }));
 }

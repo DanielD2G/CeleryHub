@@ -1,3 +1,4 @@
+import { bucketEpoch, bucketLabel } from "@/lib/task-utils";
 import { useMemo } from "react";
 import { useCeleryEvents } from "@/hooks/use-celery";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,12 +23,10 @@ export function EventTimelineChart() {
   const data = useMemo(() => {
     if (events.length === 0) return [];
 
-    const buckets = new Map<string, { task: number; worker: number }>();
+    const buckets = new Map<number, { task: number; worker: number }>();
 
     for (const event of events) {
-      const date = new Date(event.timestamp * 1000);
-      const seconds = Math.floor(date.getSeconds() / 30) * 30;
-      const key = `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+      const key = bucketEpoch(event.timestamp, 30);
 
       if (!buckets.has(key)) {
         buckets.set(key, { task: 0, worker: 0 });
@@ -41,8 +40,15 @@ export function EventTimelineChart() {
     }
 
     return Array.from(buckets.entries())
-      .map(([time, counts]) => ({ time, ...counts }))
-      .sort((a, b) => a.time.localeCompare(b.time));
+      .sort(([a], [b]) => a - b)
+      .map(([epoch, counts]) => {
+        const d = new Date(epoch * 1000);
+        const time = `${bucketLabel(epoch)}:${d
+          .getSeconds()
+          .toString()
+          .padStart(2, "0")}`;
+        return { time, ...counts };
+      });
   }, [events]);
 
   return (

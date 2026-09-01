@@ -15,6 +15,8 @@ import type {
 import { apiGet } from "@/lib/api";
 
 const MAX_EVENTS = 100;
+// taskId -> consecutive active-polls that did not report it
+const _missedPolls = new Map<string, number>();
 const MAX_COMPLETED = 500;
 const HEARTBEAT_TIMEOUT = 30_000; // 30s
 
@@ -287,29 +289,53 @@ function celeryReducer(state: CeleryState, action: Action): CeleryState {
       const knownTaskNames = new Set(state.knownTaskNames);
       const polledIds = new Set(action.payload.map((t) => t.taskId));
       let changed = false;
+      let namesChanged = false;
 
-      // Add/update tasks from API
+      // Add/update tasks from API — only flag a change when the entry is
+      // actually new or different, otherwise every poll produced a fresh
+      // state object and re-rendered every consumer.
       for (const task of action.payload) {
         if (!state.completedTasks.has(task.taskId)) {
-          activeTasks.set(task.taskId, task);
-          changed = true;
+          const prev = activeTasks.get(task.taskId);
+          if (
+            !prev ||
+            prev.status !== task.status ||
+            prev.worker !== task.worker ||
+            prev.startedAt !== task.startedAt
+          ) {
+            activeTasks.set(task.taskId, task);
+            changed = true;
+          }
+          _missedPolls.delete(task.taskId);
         }
-        if (task.name && task.name !== "unknown") {
+        if (task.name && task.name !== "unknown" && !knownTaskNames.has(task.name)) {
           knownTaskNames.add(task.name);
+          namesChanged = true;
         }
       }
 
-      // Only remove tasks the API confirms are gone AND that we already
-      // know completed (in completedTasks). Don't remove SSE-tracked tasks
-      // the gateway hasn't seen yet.
+      // Evict tasks the gateway stopped reporting. Known-completed ones go
+      // immediately; unknown ones (worker died, lost terminal event) after
+      // three consecutive misses, so they can't sit in "Active" forever.
       for (const id of activeTasks.keys()) {
-        if (!polledIds.has(id) && state.completedTasks.has(id)) {
+        if (polledIds.has(id)) continue;
+        if (state.completedTasks.has(id)) {
           activeTasks.delete(id);
+          _missedPolls.delete(id);
           changed = true;
+          continue;
+        }
+        const misses = (_missedPolls.get(id) ?? 0) + 1;
+        if (misses >= 3) {
+          activeTasks.delete(id);
+          _missedPolls.delete(id);
+          changed = true;
+        } else {
+          _missedPolls.set(id, misses);
         }
       }
 
-      return changed
+      return changed || namesChanged
         ? { ...state, activeTasks, knownTaskNames }
         : state;
     }
@@ -456,11 +482,19 @@ export function EventProvider({ children }: { children: ReactNode }) {
   const hasActiveTasks = state.activeTasks.size > 0;
   useEffect(() => {
     let cancelled = false;
+    let seq = 0;
+    let inFlight: AbortController | null = null;
 
     const pollActive = () => {
-      apiGet<ActiveTask[]>("/api/tasks/active")
+      if (document.hidden) return; // don't hammer the API from background tabs
+      inFlight?.abort();
+      const controller = new AbortController();
+      inFlight = controller;
+      const mySeq = ++seq;
+      apiGet<ActiveTask[]>("/api/tasks/active", controller.signal)
         .then((tasks) => {
-          if (!cancelled) {
+          // Out-of-order guard: a slow response must not clobber a newer one.
+          if (!cancelled && mySeq === seq) {
             dispatch({ type: "load-active", payload: tasks });
           }
         })
@@ -470,9 +504,15 @@ export function EventProvider({ children }: { children: ReactNode }) {
     pollActive(); // immediate first fetch
     const interval = hasActiveTasks ? 2000 : 4000;
     const id = setInterval(pollActive, interval);
+    const onVisible = () => {
+      if (!document.hidden) pollActive();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
+      inFlight?.abort();
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [hasActiveTasks]);
 
