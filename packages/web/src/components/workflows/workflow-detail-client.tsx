@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { parseJson } from "@/lib/workflow-utils";
 import {
   Dialog,
   DialogContent,
@@ -15,15 +14,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  WorkflowForm,
-  type CreateWorkflowInput,
-} from "@/components/workflows/workflow-form";
-import { apiToStepEditor } from "@/components/workflows/workflow-step-editor";
 import { WorkflowRunHistory } from "@/components/workflows/workflow-run-history";
-import { WorkflowDag } from "@/components/workflows/workflow-dag";
+import { WorkflowCanvas } from "@/components/workflows/workflow-canvas";
 import { formatSchedule } from "@/lib/scheduler/cron";
-import { apiPost, apiPut, apiDelete } from "@/lib/api";
+import { apiPost, apiDelete } from "@/lib/api";
 import { ArrowLeft, Play, Pencil, Trash2, Loader2, Download, Copy } from "lucide-react";
 
 function _InfoRow({
@@ -51,15 +45,16 @@ function _workflowToExportJson(workflow: Workflow): string {
       cronExpression: workflow.cronExpression,
       enabled: workflow.enabled,
       maxRunCount: workflow.maxRunCount,
-      steps: workflow.steps.map((s) => ({
-        id: s.id,
-        label: s.label,
-        taskNames: parseJson<string[]>(s.taskNames, []),
-        args: s.args,
-        kwargs: s.kwargs,
-        queue: s.queue,
-        dependsOn: parseJson<string[]>(s.dependsOn, []),
-        condition: s.condition,
+      nodes: workflow.nodes.map((n) => ({
+        id: n.id,
+        label: n.label,
+        taskName: n.taskName,
+        args: n.args,
+        kwargs: n.kwargs,
+        queue: n.queue,
+        dependsOn: n.dependsOn,
+        condition: n.condition,
+        timeoutSeconds: n.timeoutSeconds,
       })),
     },
     null,
@@ -77,7 +72,6 @@ export function WorkflowDetailClient({
   onRefresh?: () => void;
 }) {
   const navigate = useNavigate();
-  const [editOpen, setEditOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [duplicateName, setDuplicateName] = useState("");
@@ -184,49 +178,10 @@ export function WorkflowDetailClient({
             Run Now
           </Button>
 
-          <Dialog open={editOpen} onOpenChange={setEditOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Edit Workflow</DialogTitle>
-              </DialogHeader>
-              <WorkflowForm
-                initialValues={{
-                  name: workflow.name,
-                  description: workflow.description,
-                  scheduleType: workflow.scheduleType,
-                  intervalSeconds: workflow.intervalSeconds ?? undefined,
-                  cronExpression: workflow.cronExpression ?? undefined,
-                  enabled: workflow.enabled,
-                  maxRunCount: workflow.maxRunCount,
-                  steps: workflow.steps.map(apiToStepEditor),
-                }}
-                onSubmit={async (input: CreateWorkflowInput) => {
-                  try {
-                    const result = await apiPut<{ error?: string }>(
-                      `/api/workflows/${workflow.id}`,
-                      input
-                    );
-                    if (!result.error) {
-                      setEditOpen(false);
-                      onRefresh?.();
-                    }
-                    return result;
-                  } catch (e) {
-                    return {
-                      error: e instanceof Error ? e.message : "Failed to update",
-                    };
-                  }
-                }}
-                submitLabel="Save Changes"
-              />
-            </DialogContent>
-          </Dialog>
+          <Button variant="outline" size="sm" onClick={() => navigate(`/workflows/${workflow.id}/edit`)}>
+            <Pencil className="mr-2 h-4 w-4" />
+            Edit
+          </Button>
 
           <Dialog
             open={duplicateOpen}
@@ -353,7 +308,7 @@ export function WorkflowDetailClient({
                 )}
               </Badge>
             </_InfoRow>
-            <_InfoRow label="Steps">{workflow.steps.length}</_InfoRow>
+            <_InfoRow label="Nodes">{workflow.nodes.length}</_InfoRow>
             <_InfoRow label="Max Runs">
               {workflow.maxRunCount != null ? workflow.maxRunCount : "Unlimited"}
             </_InfoRow>
@@ -397,10 +352,10 @@ export function WorkflowDetailClient({
         </Card>
       </div>
 
-      {workflow.steps.length > 0 && (
+      {workflow.nodes.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-lg font-semibold">Workflow DAG</h3>
-          <WorkflowDag steps={workflow.steps} scheduleType={workflow.scheduleType} />
+          <h3 className="text-lg font-semibold">Workflow Canvas</h3>
+          <WorkflowCanvas nodes={workflow.nodes} readOnly />
         </div>
       )}
 

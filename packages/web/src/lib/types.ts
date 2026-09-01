@@ -146,16 +146,21 @@ export interface CompletedTaskMeta {
 }
 
 // Workflow types
-export interface WorkflowStep {
+export interface WorkflowNode {
   id: string;
   label: string;
-  taskNames: string; // JSON string
+  taskName: string;
   args: string | null;
   kwargs: string | null;
   queue: string | null;
-  dependsOn: string; // JSON string of step IDs
+  dependsOn: string; // JSON-encoded string[] of node IDs — parse with parseJson<string[]>(node.dependsOn, [])
   condition: string;
   timeoutSeconds: number | null;
+  /** Raw columns returned by the API; null means no saved position */
+  positionX: number | null;
+  positionY: number | null;
+  /** Convenience form preferred by nodesToFlow; set when caller has already merged positionX/Y */
+  position?: { x: number; y: number } | null;
 }
 
 export interface Workflow {
@@ -172,7 +177,7 @@ export interface Workflow {
   nextRunAt: string | null;
   createdAt: string;
   updatedAt: string;
-  steps: WorkflowStep[];
+  nodes: WorkflowNode[];
 }
 
 export interface WorkflowSummary {
@@ -189,29 +194,19 @@ export interface WorkflowSummary {
   nextRunAt: string | null;
   createdAt: string;
   updatedAt: string;
-  stepCount: number;
+  nodeCount: number;
 }
 
-export interface TaskRunDetail {
+export interface NodeRun {
   id: string;
-  taskId: string | null;
+  nodeId: string;
+  label: string;
   taskName: string;
-  args: string | null;
-  kwargs: string | null;
-  queue: string | null;
+  celeryTaskId: string | null;
   status: string;
   error: string | null;
-  sentAt: string | null;
-}
-
-export interface StepRunDetail {
-  id: string;
-  stepId: string;
-  stepLabel: string;
-  status: string;
   startedAt: string | null;
   finishedAt: string | null;
-  taskRuns: TaskRunDetail[];
 }
 
 export interface WorkflowRun {
@@ -230,7 +225,7 @@ export interface WorkflowRunDetail {
   trigger: string;
   startedAt: string;
   finishedAt: string | null;
-  stepRuns: StepRunDetail[];
+  nodeRuns: NodeRun[];
 }
 
 // Event provider state

@@ -36,7 +36,7 @@ class Workflow(Base):
         DateTime(timezone=True), nullable=False
     )
 
-    steps: Mapped[list["WorkflowStep"]] = relationship(
+    nodes: Mapped[list["WorkflowNode"]] = relationship(
         back_populates="workflow", cascade="all, delete-orphan"
     )
     runs: Mapped[list["WorkflowRun"]] = relationship(
@@ -48,31 +48,29 @@ class Workflow(Base):
     )
 
 
-class WorkflowStep(Base):
-    __tablename__ = "workflow_steps"
+class WorkflowNode(Base):
+    __tablename__ = "workflow_nodes"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     workflow_id: Mapped[str] = mapped_column(
         String, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
     )
     label: Mapped[str] = mapped_column(String, nullable=False)
-    task_names: Mapped[str] = mapped_column(
-        String, nullable=False, default="[]"
-    )  # JSON
+    task_name: Mapped[str] = mapped_column(String, nullable=False)
     args: Mapped[str | None] = mapped_column(String, default="[]")
     kwargs: Mapped[str | None] = mapped_column(String, default="{}")
     queue: Mapped[str | None] = mapped_column(String, default="celery")
-    depends_on: Mapped[str] = mapped_column(
-        String, nullable=False, default="[]"
-    )  # JSON list of step IDs
+    depends_on: Mapped[str] = mapped_column(String, nullable=False, default="[]")
     condition: Mapped[str] = mapped_column(
         String, nullable=False, default="all_succeeded"
-    )  # "all_succeeded"|"all_completed"|"any_succeeded"|"any_failed"
+    )
     timeout_seconds: Mapped[int | None] = mapped_column(Integer, default=None)
+    position_x: Mapped[float | None] = mapped_column(Float, default=None)
+    position_y: Mapped[float | None] = mapped_column(Float, default=None)
 
-    workflow: Mapped["Workflow"] = relationship(back_populates="steps")
+    workflow: Mapped["Workflow"] = relationship(back_populates="nodes")
 
-    __table_args__ = (Index("idx_workflow_steps_workflow_id", "workflow_id"),)
+    __table_args__ = (Index("idx_workflow_nodes_workflow_id", "workflow_id"),)
 
 
 class WorkflowRun(Base):
@@ -96,7 +94,7 @@ class WorkflowRun(Base):
     )
 
     workflow: Mapped["Workflow"] = relationship(back_populates="runs")
-    step_runs: Mapped[list["StepRun"]] = relationship(
+    node_runs: Mapped[list["NodeRun"]] = relationship(
         back_populates="workflow_run", cascade="all, delete-orphan"
     )
 
@@ -106,18 +104,22 @@ class WorkflowRun(Base):
     )
 
 
-class StepRun(Base):
-    __tablename__ = "step_runs"
+class NodeRun(Base):
+    __tablename__ = "node_runs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     workflow_run_id: Mapped[str] = mapped_column(
         String, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False
     )
-    step_id: Mapped[str] = mapped_column(String, nullable=False)  # denormalized, no FK
-    step_label: Mapped[str] = mapped_column(String, nullable=False)  # denormalized
-    status: Mapped[str] = mapped_column(
-        String, nullable=False, default="pending"
-    )  # "pending"|"running"|"succeeded"|"failed"|"skipped"
+    node_id: Mapped[str] = mapped_column(String, nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    task_name: Mapped[str] = mapped_column(String, nullable=False)
+    args: Mapped[str | None] = mapped_column(String, default=None)
+    kwargs: Mapped[str | None] = mapped_column(String, default=None)
+    queue: Mapped[str | None] = mapped_column(String, default=None)
+    celery_task_id: Mapped[str | None] = mapped_column(String, default=None)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    error: Mapped[str | None] = mapped_column(String, default=None)
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
@@ -125,39 +127,11 @@ class StepRun(Base):
         DateTime(timezone=True), default=None
     )
 
-    workflow_run: Mapped["WorkflowRun"] = relationship(back_populates="step_runs")
-    task_runs: Mapped[list["TaskRun"]] = relationship(
-        back_populates="step_run", cascade="all, delete-orphan"
-    )
-
-    __table_args__ = (Index("idx_step_runs_workflow_run_id", "workflow_run_id"),)
-
-
-class TaskRun(Base):
-    __tablename__ = "task_runs"
-
-    id: Mapped[str] = mapped_column(String, primary_key=True)
-    step_run_id: Mapped[str] = mapped_column(
-        String, ForeignKey("step_runs.id", ondelete="CASCADE"), nullable=False
-    )
-    task_id: Mapped[str | None] = mapped_column(String, default=None)  # Celery UUID
-    task_name: Mapped[str] = mapped_column(String, nullable=False)
-    args: Mapped[str | None] = mapped_column(String, default=None)
-    kwargs: Mapped[str | None] = mapped_column(String, default=None)
-    queue: Mapped[str | None] = mapped_column(String, default=None)
-    status: Mapped[str] = mapped_column(
-        String, nullable=False, default="SENT"
-    )  # "SENT"|"SUCCESS"|"FAILURE"
-    error: Mapped[str | None] = mapped_column(String, default=None)
-    sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
-
-    step_run: Mapped["StepRun"] = relationship(back_populates="task_runs")
+    workflow_run: Mapped["WorkflowRun"] = relationship(back_populates="node_runs")
 
     __table_args__ = (
-        Index("idx_task_runs_step_run_id", "step_run_id"),
-        Index("idx_task_runs_task_id", "task_id"),
+        Index("idx_node_runs_workflow_run_id", "workflow_run_id"),
+        Index("idx_node_runs_celery_task_id", "celery_task_id"),
     )
 
 

@@ -8,21 +8,21 @@ import pytest
 from httpx import AsyncClient
 
 
-def _make_step(
-    label: str = "Step 1",
-    task_names: list[str] | None = None,
+def _make_node(
+    label: str = "Node 1",
+    task_name: str = "tasks.add",
 ) -> dict[str, Any]:
     return {
         "id": str(uuid.uuid4()),
         "label": label,
-        "taskNames": task_names or ["tasks.add"],
+        "taskName": task_name,
     }
 
 
 async def _create_interval_workflow(
     client: AsyncClient,
     name: str = "test-workflow",
-    steps: list[dict[str, Any]] | None = None,
+    nodes: list[dict[str, Any]] | None = None,
     interval_seconds: int = 60,
 ) -> dict[str, Any]:
     resp = await client.post(
@@ -31,7 +31,7 @@ async def _create_interval_workflow(
             "name": name,
             "scheduleType": "interval",
             "intervalSeconds": interval_seconds,
-            "steps": steps or [_make_step()],
+            "nodes": nodes or [_make_node()],
         },
     )
     return resp.json()
@@ -48,7 +48,7 @@ async def _create_cron_workflow(
             "name": name,
             "scheduleType": "cron",
             "cronExpression": cron_expression,
-            "steps": [_make_step()],
+            "nodes": [_make_node()],
         },
     )
     return resp.json()
@@ -57,13 +57,13 @@ async def _create_cron_workflow(
 async def _create_unscheduled_workflow(
     client: AsyncClient,
     name: str = "manual-workflow",
-    steps: list[dict[str, Any]] | None = None,
+    nodes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/workflows",
         json={
             "name": name,
-            "steps": steps or [_make_step()],
+            "nodes": nodes or [_make_node()],
         },
     )
     return resp.json()
@@ -77,7 +77,7 @@ class TestCreateWorkflow:
                 "name": "my-interval",
                 "scheduleType": "interval",
                 "intervalSeconds": 60,
-                "steps": [_make_step()],
+                "nodes": [_make_node()],
             },
         )
         assert resp.status_code == 201
@@ -91,7 +91,7 @@ class TestCreateWorkflow:
                 "name": "my-cron",
                 "scheduleType": "cron",
                 "cronExpression": "*/5 * * * *",
-                "steps": [_make_step()],
+                "nodes": [_make_node()],
             },
         )
         assert resp.status_code == 201
@@ -102,7 +102,7 @@ class TestCreateWorkflow:
             "/api/workflows",
             json={
                 "name": "manual",
-                "steps": [_make_step()],
+                "nodes": [_make_node()],
             },
         )
         assert resp.status_code == 201
@@ -113,17 +113,17 @@ class TestCreateWorkflow:
             "/api/workflows",
             json={
                 "name": "",
-                "steps": [_make_step()],
+                "nodes": [_make_node()],
             },
         )
         assert resp.status_code == 422
 
-    async def test_create_empty_steps(self, client: AsyncClient) -> None:
+    async def test_create_empty_nodes(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/workflows",
             json={
                 "name": "test",
-                "steps": [],
+                "nodes": [],
             },
         )
         assert resp.status_code == 422
@@ -134,7 +134,7 @@ class TestCreateWorkflow:
             json={
                 "name": "test",
                 "scheduleType": "weekly",
-                "steps": [_make_step()],
+                "nodes": [_make_node()],
             },
         )
         assert resp.status_code == 422
@@ -145,7 +145,7 @@ class TestCreateWorkflow:
             json={
                 "name": "test",
                 "scheduleType": "interval",
-                "steps": [_make_step()],
+                "nodes": [_make_node()],
             },
         )
         assert resp.status_code == 400
@@ -156,7 +156,7 @@ class TestCreateWorkflow:
             json={
                 "name": "test",
                 "scheduleType": "cron",
-                "steps": [_make_step()],
+                "nodes": [_make_node()],
             },
         )
         assert resp.status_code == 400
@@ -168,23 +168,23 @@ class TestCreateWorkflow:
                 "name": "test",
                 "scheduleType": "cron",
                 "cronExpression": "invalid",
-                "steps": [_make_step()],
+                "nodes": [_make_node()],
             },
         )
         assert resp.status_code == 400
 
-    async def test_create_with_step_invalid_args_json(
+    async def test_create_with_node_invalid_args_json(
         self, client: AsyncClient
     ) -> None:
         resp = await client.post(
             "/api/workflows",
             json={
                 "name": "test",
-                "steps": [
+                "nodes": [
                     {
                         "id": str(uuid.uuid4()),
-                        "label": "Step 1",
-                        "taskNames": ["tasks.add"],
+                        "label": "Node 1",
+                        "taskName": "tasks.add",
                         "args": "not valid json",
                     }
                 ],
@@ -192,28 +192,39 @@ class TestCreateWorkflow:
         )
         assert resp.status_code == 422
 
-    async def test_create_multi_step_dag(self, client: AsyncClient) -> None:
+    async def test_create_multi_node_dag(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/workflows",
             json={
                 "name": "dag-workflow",
-                "steps": [
-                    {"id": "s1", "label": "Extract", "taskNames": ["tasks.extract"]},
+                "nodes": [
+                    {"id": "n1", "label": "Extract", "taskName": "tasks.extract"},
                     {
-                        "id": "s2",
+                        "id": "n2",
                         "label": "Transform",
-                        "taskNames": ["tasks.transform"],
-                        "dependsOn": ["s1"],
+                        "taskName": "tasks.transform",
+                        "dependsOn": ["n1"],
                     },
                     {
-                        "id": "s3",
+                        "id": "n3",
                         "label": "Load",
-                        "taskNames": ["tasks.load"],
-                        "dependsOn": ["s2"],
+                        "taskName": "tasks.load",
+                        "dependsOn": ["n2"],
                     },
                 ],
             },
         )
+        assert resp.status_code == 201
+
+    async def test_create_with_node_dependency(self, client: AsyncClient) -> None:
+        payload = {
+            "name": "wf",
+            "nodes": [
+                {"id": "a", "label": "A", "taskName": "tasks.a"},
+                {"id": "b", "label": "B", "taskName": "tasks.b", "dependsOn": ["a"]},
+            ],
+        }
+        resp = await client.post("/api/workflows", json=payload)
         assert resp.status_code == 201
 
     async def test_create_cycle_rejected(self, client: AsyncClient) -> None:
@@ -221,19 +232,53 @@ class TestCreateWorkflow:
             "/api/workflows",
             json={
                 "name": "cycle",
-                "steps": [
+                "nodes": [
                     {
-                        "id": "s1",
+                        "id": "n1",
                         "label": "A",
-                        "taskNames": ["a"],
-                        "dependsOn": ["s2"],
+                        "taskName": "a",
+                        "dependsOn": ["n2"],
                     },
                     {
-                        "id": "s2",
+                        "id": "n2",
                         "label": "B",
-                        "taskNames": ["b"],
-                        "dependsOn": ["s1"],
+                        "taskName": "b",
+                        "dependsOn": ["n1"],
                     },
+                ],
+            },
+        )
+        assert resp.status_code == 400
+
+    async def test_create_self_dep_rejected(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/workflows",
+            json={
+                "name": "self-dep",
+                "nodes": [
+                    {
+                        "id": "n1",
+                        "label": "A",
+                        "taskName": "a",
+                        "dependsOn": ["n1"],
+                    }
+                ],
+            },
+        )
+        assert resp.status_code == 400
+
+    async def test_create_unknown_dep_rejected(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/workflows",
+            json={
+                "name": "unknown-dep",
+                "nodes": [
+                    {
+                        "id": "n1",
+                        "label": "A",
+                        "taskName": "a",
+                        "dependsOn": ["does-not-exist"],
+                    }
                 ],
             },
         )
@@ -268,8 +313,8 @@ class TestGetWorkflow:
         assert data["name"] == "test-workflow"
         assert "scheduleType" in data
         assert "intervalSeconds" in data
-        assert "steps" in data
-        assert len(data["steps"]) == 1
+        assert "nodes" in data
+        assert len(data["nodes"]) == 1
 
     async def test_get_nonexistent(self, client: AsyncClient) -> None:
         resp = await client.get("/api/workflows/nonexistent-id")
@@ -372,6 +417,27 @@ class TestDuplicateWorkflow:
         resp = await client.post("/api/workflows/nonexistent-id/duplicate")
         assert resp.status_code == 404
 
+    async def test_duplicate_preserves_node_positions(self, client: AsyncClient) -> None:
+        # Create a workflow with a node that has position coordinates
+        node = _make_node()
+        node["positionX"] = 100.5
+        node["positionY"] = 200.5
+        created = await _create_unscheduled_workflow(client, nodes=[node])
+        wf_id: str = created["id"]
+
+        # Duplicate the workflow
+        resp = await client.post(f"/api/workflows/{wf_id}/duplicate")
+        assert resp.status_code == 201
+        new_wf_id = resp.json()["id"]
+
+        # Get the duplicated workflow and verify node positions are preserved
+        get_resp = await client.get(f"/api/workflows/{new_wf_id}")
+        assert get_resp.status_code == 200
+        duplicated_wf = get_resp.json()
+        assert len(duplicated_wf["nodes"]) == 1
+        assert duplicated_wf["nodes"][0]["positionX"] == 100.5
+        assert duplicated_wf["nodes"][0]["positionY"] == 200.5
+
 
 class TestRunNow:
     async def test_run_now(self, client: AsyncClient) -> None:
@@ -392,6 +458,25 @@ class TestRunNow:
     async def test_run_now_nonexistent(self, client: AsyncClient) -> None:
         resp = await client.post("/api/workflows/nonexistent-id/run-now")
         assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_persists_node_positions(client):
+    payload = {
+        "name": "wf-pos",
+        "nodes": [
+            {"id": "a", "label": "A", "taskName": "tasks.a",
+             "positionX": 120.5, "positionY": 40.0},
+        ],
+    }
+    resp = await client.post("/api/workflows", json=payload)
+    assert resp.status_code == 201
+    wid = resp.json()["id"]
+
+    detail = await client.get(f"/api/workflows/{wid}")
+    node = detail.json()["nodes"][0]
+    assert node["positionX"] == 120.5
+    assert node["positionY"] == 40.0
 
 
 class TestGetRuns:

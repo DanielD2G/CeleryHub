@@ -13,13 +13,13 @@ from sqlalchemy import delete, desc, func, select, update
 from sqlalchemy.orm import selectinload
 
 from ..db import get_session
-from ..db.models import StepRun, Workflow, WorkflowRun, WorkflowStep
+from ..db.models import NodeRun, Workflow, WorkflowNode, WorkflowRun
 from ..middleware.auth import require_auth
 from ..models.base import CamelModel
 
 from ..models.workflows import (
     CreateWorkflowInput,
-    StepInput,
+    NodeInput,
     UpdateWorkflowInput,
     WorkflowResponse,
     WorkflowRunDetailResponse,
@@ -37,53 +37,53 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
 # ---------------------------------------------------------------------------
 
 
-def _validate_dag(steps: list[StepInput]) -> None:
-    """Validate that steps form a valid DAG using Kahn's algorithm."""
-    step_ids: set[str] = {s.id for s in steps}
+def _validate_dag(nodes: list[NodeInput]) -> None:
+    """Validate that nodes form a valid DAG using Kahn's algorithm."""
+    node_ids: set[str] = {n.id for n in nodes}
 
     # Check for duplicates
-    if len(step_ids) != len(steps):
-        raise HTTPException(status_code=400, detail="Duplicate step IDs found")
+    if len(node_ids) != len(nodes):
+        raise HTTPException(status_code=400, detail="Duplicate node IDs found")
 
     # Build adjacency and in-degree
-    in_degree: dict[str, int] = {s.id: 0 for s in steps}
-    adjacency: dict[str, list[str]] = {s.id: [] for s in steps}
+    in_degree: dict[str, int] = {n.id: 0 for n in nodes}
+    adjacency: dict[str, list[str]] = {n.id: [] for n in nodes}
 
-    for step in steps:
-        for dep_id in step.depends_on:
-            if dep_id == step.id:
+    for node in nodes:
+        for dep_id in node.depends_on:
+            if dep_id == node.id:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Step '{step.id}' cannot depend on itself",
+                    detail=f"Node '{node.id}' cannot depend on itself",
                 )
-            if dep_id not in step_ids:
+            if dep_id not in node_ids:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Step '{step.id}' depends on unknown step '{dep_id}'",
+                    detail=f"Node '{node.id}' depends on unknown node '{dep_id}'",
                 )
-            adjacency[dep_id].append(step.id)
-            in_degree[step.id] += 1
+            adjacency[dep_id].append(node.id)
+            in_degree[node.id] += 1
 
-    # At least one root step
-    roots: list[str] = [sid for sid, deg in in_degree.items() if deg == 0]
+    # At least one root node
+    roots: list[str] = [nid for nid, deg in in_degree.items() if deg == 0]
     if not roots:
         raise HTTPException(
-            status_code=400, detail="At least one root step (no dependencies) required"
+            status_code=400, detail="At least one root node (no dependencies) required"
         )
 
     # Kahn's algorithm
     queue: deque[str] = deque(roots)
     visited: int = 0
     while queue:
-        node = queue.popleft()
+        current = queue.popleft()
         visited += 1
-        for child in adjacency[node]:
+        for child in adjacency[current]:
             in_degree[child] -= 1
             if in_degree[child] == 0:
                 queue.append(child)
 
-    if visited < len(steps):
-        raise HTTPException(status_code=400, detail="Cycle detected in step dependencies")
+    if visited < len(nodes):
+        raise HTTPException(status_code=400, detail="Cycle detected in node dependencies")
 
 
 def _validate_schedule_fields(
@@ -115,20 +115,20 @@ def _validate_schedule_fields(
 # ---------------------------------------------------------------------------
 
 
-def _build_step_id_map(step_ids: list[str]) -> dict[str, str]:
-    """Map client-provided step IDs to server-generated UUIDs."""
-    return {sid: str(uuid.uuid4()) for sid in step_ids}
+def _build_node_id_map(node_ids: list[str]) -> dict[str, str]:
+    """Map client-provided node IDs to server-generated UUIDs."""
+    return {nid: str(uuid.uuid4()) for nid in node_ids}
 
 
-def _remap_step_ids(steps: list[StepInput]) -> list[StepInput]:
-    """Replace client-provided step IDs with server-generated UUIDs."""
-    id_map = _build_step_id_map([s.id for s in steps])
+def _remap_node_ids(nodes: list[NodeInput]) -> list[NodeInput]:
+    """Replace client-provided node IDs with server-generated UUIDs."""
+    id_map = _build_node_id_map([n.id for n in nodes])
     return [
-        step.model_copy(update={
-            "id": id_map[step.id],
-            "depends_on": [id_map.get(d, d) for d in step.depends_on],
+        node.model_copy(update={
+            "id": id_map[node.id],
+            "depends_on": [id_map.get(d, d) for d in node.depends_on],
         })
-        for step in steps
+        for node in nodes
     ]
 
 
@@ -143,9 +143,9 @@ async def list_workflows() -> Any:
         stmt = (
             select(
                 Workflow,
-                func.count(WorkflowStep.id).label("step_count"),
+                func.count(WorkflowNode.id).label("node_count"),
             )
-            .outerjoin(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
+            .outerjoin(WorkflowNode, WorkflowNode.workflow_id == Workflow.id)
             .group_by(Workflow.id)
             .order_by(desc(Workflow.created_at))
         )
@@ -159,17 +159,17 @@ async def list_workflows() -> Any:
                         c.key: getattr(wf, c.key)
                         for c in Workflow.__table__.columns
                     },
-                    "step_count": step_count,
+                    "node_count": node_count,
                 }
             )
-            for wf, step_count in rows
+            for wf, node_count in rows
         ]
 
 
 @router.post("", response_model=None, dependencies=[Depends(require_auth)])
 async def create_workflow(body: CreateWorkflowInput) -> JSONResponse:
-    _validate_dag(body.steps)
-    steps = _remap_step_ids(body.steps)
+    _validate_dag(body.nodes)
+    nodes = _remap_node_ids(body.nodes)
 
     schedule_type = body.schedule_type
     if schedule_type != "none":
@@ -208,20 +208,22 @@ async def create_workflow(body: CreateWorkflowInput) -> JSONResponse:
         )
         session.add(workflow)
 
-        for step in steps:
-            ws = WorkflowStep(
-                id=step.id,
+        for node in nodes:
+            wn = WorkflowNode(
+                id=node.id,
                 workflow_id=workflow_id,
-                label=step.label,
-                task_names=json.dumps(step.task_names),
-                args=step.args or "[]",
-                kwargs=step.kwargs or "{}",
-                queue=step.queue or "celery",
-                depends_on=json.dumps(step.depends_on),
-                condition=step.condition,
-                timeout_seconds=step.timeout_seconds,
+                label=node.label,
+                task_name=node.task_name,
+                args=node.args or "[]",
+                kwargs=node.kwargs or "{}",
+                queue=node.queue or "celery",
+                depends_on=json.dumps(node.depends_on),
+                condition=node.condition,
+                timeout_seconds=node.timeout_seconds,
+                position_x=node.position_x,
+                position_y=node.position_y,
             )
-            session.add(ws)
+            session.add(wn)
 
         await session.commit()
 
@@ -236,7 +238,7 @@ async def get_workflow_run_detail(run_id: str) -> Any:
         result = await session.execute(
             select(WorkflowRun)
             .options(
-                selectinload(WorkflowRun.step_runs).selectinload(StepRun.task_runs)
+                selectinload(WorkflowRun.node_runs)
             )
             .where(WorkflowRun.id == run_id)
             .limit(1)
@@ -268,7 +270,7 @@ async def get_workflow(workflow_id: str) -> Any:
     async with get_session() as session:
         result = await session.execute(
             select(Workflow)
-            .options(selectinload(Workflow.steps))
+            .options(selectinload(Workflow.nodes))
             .where(Workflow.id == workflow_id)
             .limit(1)
         )
@@ -289,7 +291,7 @@ async def update_workflow(
     async with get_session() as session:
         result = await session.execute(
             select(Workflow)
-            .options(selectinload(Workflow.steps))
+            .options(selectinload(Workflow.nodes))
             .where(Workflow.id == workflow_id)
             .limit(1)
         )
@@ -297,19 +299,17 @@ async def update_workflow(
         if not existing:
             raise HTTPException(status_code=404, detail="Workflow not found")
 
-        # Validate and replace steps if provided
-        # Keep typed StepInput objects for DAG validation and persistence.
-        # `model_dump()` turns nested models into dicts.
-        new_steps: list[StepInput] | None = (
-            body.steps if "steps" in body.model_fields_set else None
+        # Validate and replace nodes if provided
+        new_nodes: list[NodeInput] | None = (
+            body.nodes if "nodes" in body.model_fields_set else None
         )
-        if new_steps is not None:
-            if len(new_steps) == 0:
+        if new_nodes is not None:
+            if len(new_nodes) == 0:
                 raise HTTPException(
-                    status_code=400, detail="At least one step is required"
+                    status_code=400, detail="At least one node is required"
                 )
-            _validate_dag(new_steps)
-            new_steps = _remap_step_ids(new_steps)
+            _validate_dag(new_nodes)
+            new_nodes = _remap_node_ids(new_nodes)
 
         schedule_type = updates.get("schedule_type", existing.schedule_type)
         interval_seconds = updates.get("interval_seconds", existing.interval_seconds)
@@ -352,27 +352,27 @@ async def update_workflow(
             update(Workflow).where(Workflow.id == workflow_id).values(**values)
         )
 
-        # Replace steps if provided
-        if new_steps is not None:
+        # Replace nodes if provided
+        if new_nodes is not None:
             await session.execute(
-                delete(WorkflowStep).where(
-                    WorkflowStep.workflow_id == workflow_id
-                )
+                delete(WorkflowNode).where(WorkflowNode.workflow_id == workflow_id)
             )
-            for step in new_steps:
-                ws = WorkflowStep(
-                    id=step.id,
+            for node in new_nodes:
+                wn = WorkflowNode(
+                    id=node.id,
                     workflow_id=workflow_id,
-                    label=step.label,
-                    task_names=json.dumps(step.task_names),
-                    args=step.args or "[]",
-                    kwargs=step.kwargs or "{}",
-                    queue=step.queue or "celery",
-                    depends_on=json.dumps(step.depends_on),
-                    condition=step.condition,
-                    timeout_seconds=step.timeout_seconds,
+                    label=node.label,
+                    task_name=node.task_name,
+                    args=node.args or "[]",
+                    kwargs=node.kwargs or "{}",
+                    queue=node.queue or "celery",
+                    depends_on=json.dumps(node.depends_on),
+                    condition=node.condition,
+                    timeout_seconds=node.timeout_seconds,
+                    position_x=node.position_x,
+                    position_y=node.position_y,
                 )
-                session.add(ws)
+                session.add(wn)
 
         await session.commit()
 
@@ -453,7 +453,7 @@ async def duplicate_workflow(
     async with get_session() as session:
         result = await session.execute(
             select(Workflow)
-            .options(selectinload(Workflow.steps))
+            .options(selectinload(Workflow.nodes))
             .where(Workflow.id == workflow_id)
             .limit(1)
         )
@@ -464,9 +464,9 @@ async def duplicate_workflow(
         new_workflow_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
 
-        # Remap step IDs so the copy is fully independent
-        _id_map: dict[str, str] = _build_step_id_map(
-            [step.id for step in existing.steps]
+        # Remap node IDs so the copy is fully independent
+        _id_map: dict[str, str] = _build_node_id_map(
+            [node.id for node in existing.nodes]
         )
 
         workflow = Workflow(
@@ -485,22 +485,24 @@ async def duplicate_workflow(
         )
         session.add(workflow)
 
-        for step in existing.steps:
-            old_deps: list[str] = json.loads(step.depends_on or "[]")
+        for node in existing.nodes:
+            old_deps: list[str] = json.loads(node.depends_on or "[]")
             new_deps: list[str] = [_id_map.get(d, d) for d in old_deps]
-            ws = WorkflowStep(
-                id=_id_map[step.id],
+            wn = WorkflowNode(
+                id=_id_map[node.id],
                 workflow_id=new_workflow_id,
-                label=step.label,
-                task_names=step.task_names,
-                args=step.args,
-                kwargs=step.kwargs,
-                queue=step.queue,
+                label=node.label,
+                task_name=node.task_name,
+                args=node.args,
+                kwargs=node.kwargs,
+                queue=node.queue,
                 depends_on=json.dumps(new_deps),
-                condition=step.condition,
-                timeout_seconds=step.timeout_seconds,
+                condition=node.condition,
+                timeout_seconds=node.timeout_seconds,
+                position_x=node.position_x,
+                position_y=node.position_y,
             )
-            session.add(ws)
+            session.add(wn)
 
         await session.commit()
 
