@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -22,6 +22,9 @@ class Workflow(Base):
     cron_expression: Mapped[str | None] = mapped_column(String, default=None)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     max_run_count: Mapped[int | None] = mapped_column(Integer, default=None)
+    expect_success_within_seconds: Mapped[int | None] = mapped_column(
+        Integer, default=None
+    )
     total_run_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_run_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
@@ -69,6 +72,8 @@ class WorkflowStep(Base):
         String, nullable=False, default="all_succeeded"
     )  # "all_succeeded"|"all_completed"|"any_succeeded"|"any_failed"
     timeout_seconds: Mapped[int | None] = mapped_column(Integer, default=None)
+    max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retry_delay_seconds: Mapped[int | None] = mapped_column(Integer, default=None)
 
     workflow: Mapped["Workflow"] = relationship(back_populates="steps")
 
@@ -115,6 +120,7 @@ class StepRun(Base):
     )
     step_id: Mapped[str] = mapped_column(String, nullable=False)  # denormalized, no FK
     step_label: Mapped[str] = mapped_column(String, nullable=False)  # denormalized
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(
         String, nullable=False, default="pending"
     )  # "pending"|"running"|"succeeded"|"failed"|"skipped"
@@ -194,3 +200,39 @@ class Setting(Base):
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class AlertChannel(Base):
+    __tablename__ = "alert_channels"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # webhook|discord|telegram
+    config: Mapped[str] = mapped_column(String, nullable=False, default="{}")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    rules: Mapped[str] = mapped_column(String, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AlertEvent(Base):
+    __tablename__ = "alert_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    rule: Mapped[str] = mapped_column(String, nullable=False)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    message: Mapped[str] = mapped_column(String, nullable=False)
+    channel_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    delivered: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
+    fired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ExceptionRollup(Base):
+    __tablename__ = "exception_rollup"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    task_name: Mapped[str] = mapped_column(String, primary_key=True)
+    signature: Mapped[str] = mapped_column(String, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sample_task_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

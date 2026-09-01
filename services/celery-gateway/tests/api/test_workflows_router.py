@@ -478,3 +478,99 @@ class TestRunDurations:
         resp = await client.get(f"/api/workflows/{wf['id']}/run-durations")
         items = resp.json()["items"]
         assert items[0]["durationSeconds"] is None
+
+
+class TestRetryEndpoint:
+    async def test_retry_rejects_unknown_run(self, client: AsyncClient) -> None:
+        resp = await client.post("/api/workflows/runs/nope/retry")
+        assert resp.status_code == 409
+
+    async def test_retry_failed_run(self, client: AsyncClient, db_session) -> None:
+        from datetime import datetime, timezone
+
+        from celery_gateway.db.models import StepRun, TaskRun, WorkflowRun
+
+        wf = await _create_interval_workflow(client, name="retry-endpoint")
+        now = datetime.now(timezone.utc)
+        db_session.add(WorkflowRun(
+            id="rr-1", workflow_id=wf["id"], status="failed",
+            trigger="manual", started_at=now, finished_at=now,
+        ))
+        db_session.add(StepRun(
+            id="rr-sr-1", workflow_run_id="rr-1",
+            step_id="rr-step", step_label="S", status="failed",
+            started_at=now, finished_at=now,
+        ))
+        db_session.add(TaskRun(
+            id="rr-tr-1", step_run_id="rr-sr-1", task_id="t-old",
+            task_name="my_task", status="FAILURE",
+        ))
+        await db_session.commit()
+
+        with patch(
+            "celery_gateway.services.workflow_engine.dispatch_task",
+            new=AsyncMock(return_value="t-new"),
+        ):
+            resp = await client.post("/api/workflows/runs/rr-1/retry")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "running"
+
+
+class TestComparison:
+    async def test_comparison_returns_deltas(self, client: AsyncClient, db_session) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from celery_gateway.db.models import StepRun, WorkflowRun
+
+        wf = await _create_interval_workflow(client, name="cmp-wf")
+        base = datetime.now(timezone.utc) - timedelta(hours=5)
+        # 3 baseline runs of 60s + the run under inspection at 120s
+        for i in range(3):
+            rid = f"cmp-{i}"
+            db_session.add(WorkflowRun(
+                id=rid, workflow_id=wf["id"], status="succeeded", trigger="manual",
+                started_at=base + timedelta(minutes=i * 10),
+                finished_at=base + timedelta(minutes=i * 10, seconds=60),
+            ))
+            db_session.add(StepRun(
+                id=f"cmp-sr-{i}", workflow_run_id=rid, step_id="s",
+                step_label="Only", status="succeeded",
+                started_at=base + timedelta(minutes=i * 10),
+                finished_at=base + timedelta(minutes=i * 10, seconds=60),
+            ))
+        db_session.add(WorkflowRun(
+            id="cmp-x", workflow_id=wf["id"], status="succeeded", trigger="manual",
+            started_at=base + timedelta(hours=1),
+            finished_at=base + timedelta(hours=1, seconds=120),
+        ))
+        db_session.add(StepRun(
+            id="cmp-sr-x", workflow_run_id="cmp-x", step_id="s",
+            step_label="Only", status="succeeded",
+            started_at=base + timedelta(hours=1),
+            finished_at=base + timedelta(hours=1, seconds=120),
+        ))
+        await db_session.commit()
+
+        resp = await client.get("/api/workflows/runs/cmp-x/comparison")
+        assert resp.status_code == 200
+        body = resp.json()
+        step = body["steps"][0]
+        assert step["durationSeconds"] == pytest.approx(120.0)
+        assert step["baselineP50Seconds"] == pytest.approx(60.0)
+        assert step["deltaSeconds"] == pytest.approx(60.0)
+        assert step["baselineRuns"] == 3
+
+    async def test_comparison_404_unknown_run(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/workflows/runs/ghost/comparison")
+        assert resp.status_code == 404
+
+
+class TestUsingTask:
+    async def test_finds_workflows_running_a_task(self, client: AsyncClient) -> None:
+        await _create_interval_workflow(client, name="uses-mytask")
+        resp = await client.get("/api/workflows/using-task/tasks.add")
+        assert resp.status_code == 200
+        names = [r["workflowName"] for r in resp.json()]
+        assert "uses-mytask" in names
+        resp = await client.get("/api/workflows/using-task/not_a_task")
+        assert resp.json() == []

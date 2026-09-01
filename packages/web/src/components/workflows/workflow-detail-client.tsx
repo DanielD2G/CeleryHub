@@ -52,6 +52,7 @@ function _workflowToExportJson(workflow: Workflow): string {
       cronExpression: workflow.cronExpression,
       enabled: workflow.enabled,
       maxRunCount: workflow.maxRunCount,
+      expectSuccessWithinSeconds: workflow.expectSuccessWithinSeconds ?? null,
       steps: workflow.steps.map((s) => ({
         id: s.id,
         label: s.label,
@@ -205,6 +206,8 @@ export function WorkflowDetailClient({
                   cronExpression: workflow.cronExpression ?? undefined,
                   enabled: workflow.enabled,
                   maxRunCount: workflow.maxRunCount,
+                  expectSuccessWithinSeconds:
+                    workflow.expectSuccessWithinSeconds ?? null,
                   steps: workflow.steps.map(apiToStepEditor),
                 }}
                 onSubmit={async (input: CreateWorkflowInput) => {

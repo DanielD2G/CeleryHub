@@ -39,6 +39,8 @@ class StepInput(_JsonFieldMixin, CamelModel):
         "all_succeeded", "all_completed", "any_succeeded", "any_failed"
     ] = "all_succeeded"
     timeout_seconds: int | None = None
+    max_retries: int = 0
+    retry_delay_seconds: int | None = None
 
 
 class CreateWorkflowInput(CamelModel):
@@ -49,6 +51,7 @@ class CreateWorkflowInput(CamelModel):
     cron_expression: str | None = None
     enabled: bool = True
     max_run_count: int | None = None
+    expect_success_within_seconds: int | None = None
     steps: list[StepInput] = Field(min_length=1)
 
 
@@ -60,6 +63,7 @@ class UpdateWorkflowInput(CamelModel):
     cron_expression: str | None = None
     enabled: bool | None = None
     max_run_count: int | None = None
+    expect_success_within_seconds: int | None = None
     steps: list[StepInput] | None = None  # full replace if provided
 
 
@@ -78,6 +82,8 @@ class StepResponse(CamelModel):
     depends_on: str
     condition: str
     timeout_seconds: int | None
+    max_retries: int = 0
+    retry_delay_seconds: int | None = None
 
 
 class WorkflowResponse(CamelModel):
@@ -89,6 +95,7 @@ class WorkflowResponse(CamelModel):
     cron_expression: str | None
     enabled: bool
     max_run_count: int | None
+    expect_success_within_seconds: int | None = None
     total_run_count: int
     last_run_at: datetime | None
     next_run_at: datetime | None
@@ -131,6 +138,7 @@ class StepRunResponse(CamelModel):
     step_id: str
     step_label: str
     status: str
+    attempt: int = 1
     started_at: datetime | None
     finished_at: datetime | None
     task_runs: list[TaskRunResponse]

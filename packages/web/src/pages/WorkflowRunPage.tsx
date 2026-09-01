@@ -16,7 +16,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { WorkflowDag } from "@/components/workflows/workflow-dag";
-import { ArrowLeft, XCircle } from "lucide-react";
+import { RunComparison } from "@/components/workflows/run-comparison";
+import { ArrowLeft, RotateCcw, XCircle } from "lucide-react";
 import {
   formatWorkflowDate,
   WorkflowStatusBadge,
@@ -30,6 +31,7 @@ export default function WorkflowRunPage() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   useDocumentTitle(run ? `Run ${run.id.slice(0, 8)}` : "Run Detail");
 
   const fetchData = useCallback(() => {
@@ -54,6 +56,19 @@ export default function WorkflowRunPage() {
   }, [id, runId, navigate]);
 
   const isRunning = run?.status === "running";
+
+  const handleRetryRun = async () => {
+    if (!runId) return;
+    setRetrying(true);
+    try {
+      await apiPost(`/api/workflows/runs/${runId}/retry`);
+      fetchData();
+    } catch {
+      // next poll will show current status
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const handleCancelRun = async () => {
     if (!runId) return;
@@ -113,6 +128,17 @@ export default function WorkflowRunPage() {
             )}
           </div>
         </div>
+        {(run.status === "failed" || run.status === "cancelled") && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={retrying}
+            onClick={handleRetryRun}
+          >
+            <RotateCcw className="mr-1.5 h-4 w-4" />
+            Retry failed steps
+          </Button>
+        )}
         {isRunning && (
           <Button
             variant="destructive"
@@ -135,6 +161,10 @@ export default function WorkflowRunPage() {
             scheduleType={workflow.scheduleType}
           />
         </div>
+      )}
+
+      {runId && (
+        <RunComparison runId={runId} finished={run.status !== "running"} />
       )}
 
       {run.stepRuns.length > 0 && (

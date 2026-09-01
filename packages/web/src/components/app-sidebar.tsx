@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import {
+  Bell,
   LayoutDashboard,
   Server,
   ListTodo,
@@ -45,6 +46,7 @@ const navSections = [
     label: "Scheduling",
     items: [
       { href: "/workflows", label: "Workflows", icon: GitBranch },
+      { href: "/alerts", label: "Alerts", icon: Bell },
     ],
   },
   {

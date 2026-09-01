@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 _TERMINAL_STEP_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "skipped"})
 _TERMINAL_TASK_STATUSES: frozenset[str] = frozenset({"SUCCESS", "FAILURE"})
+# Task rows superseded by an automatic or manual retry; ignored when
+# deciding whether a step is complete.
+_RETRIED_STATUS = "RETRIED"
 
 _workflow_run_locks: dict[str, asyncio.Lock] = {}
 _timeout_tasks: dict[str, asyncio.Task[None]] = {}
@@ -102,7 +105,9 @@ async def on_task_completed(
         )
         all_task_runs = list(all_task_runs_result.scalars().all())
 
-        all_terminal = all(tr.status in _TERMINAL_TASK_STATUSES for tr in all_task_runs)
+        active = [tr for tr in all_task_runs if tr.status != _RETRIED_STATUS]
+        all_terminal = all(tr.status in _TERMINAL_TASK_STATUSES for tr in active)
+        retry_scheduled = False
         if all_terminal:
             step_run_result = await session.execute(
                 select(StepRun).where(StepRun.id == step_run_id).limit(1)
@@ -110,34 +115,125 @@ async def on_task_completed(
             step_run = step_run_result.scalar_one_or_none()
             if step_run and step_run.status == "running":
                 any_failed: bool = any(
-                    tr.status == "FAILURE" for tr in all_task_runs
+                    tr.status == "FAILURE" for tr in active
                 )
-                step_run.status = "failed" if any_failed else "succeeded"
-                step_run.finished_at = datetime.now(timezone.utc)
-                workflow_run_id = step_run.workflow_run_id
+                if any_failed:
+                    step_def = await session.scalar(
+                        select(WorkflowStep)
+                        .where(WorkflowStep.id == step_run.step_id)
+                        .limit(1)
+                    )
+                    max_retries = step_def.max_retries if step_def else 0
+                    if step_def and step_run.attempt <= max_retries:
+                        # Automatic retry: supersede the failed rows, bump the
+                        # attempt, and re-dispatch only what failed after the
+                        # configured delay. The step stays "running".
+                        failed_names = [
+                            tr.task_name for tr in active if tr.status == "FAILURE"
+                        ]
+                        for tr in active:
+                            if tr.status == "FAILURE":
+                                tr.status = _RETRIED_STATUS
+                        step_run.attempt += 1
+                        delay = step_def.retry_delay_seconds or 0
+                        logger.info(
+                            "[CeleryHub Engine] Retrying step '%s' "
+                            "(attempt %d/%d, delay %ds): %s",
+                            step_run.step_label,
+                            step_run.attempt,
+                            max_retries + 1,
+                            delay,
+                            failed_names,
+                        )
+                        asyncio.create_task(
+                            _retry_step_tasks(
+                                step_run.id, step_def.id, failed_names, delay
+                            )
+                        )
+                        retry_scheduled = True
+                if not retry_scheduled:
+                    step_run.status = "failed" if any_failed else "succeeded"
+                    step_run.finished_at = datetime.now(timezone.utc)
+                    workflow_run_id = step_run.workflow_run_id
 
-                # Cancel timeout if step completed naturally
-                timeout_task = _timeout_tasks.pop(step_run_id, None)
-                if timeout_task is not None:
-                    timeout_task.cancel()
+                    # Cancel timeout if step completed naturally
+                    timeout_task = _timeout_tasks.pop(step_run_id, None)
+                    if timeout_task is not None:
+                        timeout_task.cancel()
 
         await session.commit()
 
-    if all_terminal and step_run and workflow_run_id:
+    if all_terminal and not retry_scheduled and step_run and workflow_run_id:
         await _advance_workflow(workflow_run_id)
+
+
+async def _retry_step_tasks(
+    step_run_id: str, step_def_id: str, task_names: list[str], delay: int
+) -> None:
+    """Re-dispatch the failed tasks of a step after the retry delay."""
+    if delay > 0:
+        await asyncio.sleep(delay)
+    async with get_session() as session:
+        step_run = await session.scalar(
+            select(StepRun).where(StepRun.id == step_run_id).limit(1)
+        )
+        step_def = await session.scalar(
+            select(WorkflowStep).where(WorkflowStep.id == step_def_id).limit(1)
+        )
+        if step_run is None or step_def is None or step_run.status != "running":
+            return
+        args: list[Any] = json.loads(step_def.args or "[]")
+        kwargs: dict[str, Any] = json.loads(step_def.kwargs or "{}")
+        queue: str = step_def.queue or "celery"
+        for task_name in task_names:
+            task_id: str | None = None
+            error: str | None = None
+            status: str = "SENT"
+            try:
+                task_id = await dispatch_task(task_name, args, kwargs, queue)
+            except Exception as exc:
+                error = str(exc)
+                status = "FAILURE"
+            session.add(
+                TaskRun(
+                    id=str(_uuid.uuid4()),
+                    step_run_id=step_run.id,
+                    task_id=task_id,
+                    task_name=task_name,
+                    args=step_def.args,
+                    kwargs=step_def.kwargs,
+                    queue=step_def.queue,
+                    status=status,
+                    error=error,
+                    sent_at=datetime.now(timezone.utc),
+                )
+            )
+        await session.commit()
 
 
 async def cancel_workflow_run(workflow_run_id: str) -> bool:
     """Cancel a running workflow run. Returns False if not found or not running."""
+    in_flight_ids: list[str] = []
     async with get_session() as session:
         result = await session.execute(
             select(WorkflowRun)
-            .options(selectinload(WorkflowRun.step_runs))
+            .options(
+                selectinload(WorkflowRun.step_runs).selectinload(StepRun.task_runs)
+            )
             .where(WorkflowRun.id == workflow_run_id)
         )
         wf_run = result.scalar_one_or_none()
         if wf_run is None or wf_run.status != "running":
             return False
+
+        for sr in wf_run.step_runs:
+            for tr in sr.task_runs:
+                if (
+                    tr.task_id
+                    and tr.status not in _TERMINAL_TASK_STATUSES
+                    and tr.status != _RETRIED_STATUS
+                ):
+                    in_flight_ids.append(tr.task_id)
 
         now = datetime.now(timezone.utc)
         wf_run.status = "cancelled"
@@ -153,6 +249,30 @@ async def cancel_workflow_run(workflow_run_id: str) -> bool:
 
         await session.commit()
         _cleanup_run_lock(workflow_run_id)
+
+    if in_flight_ids:
+        # Revoke the Celery tasks still in flight so cancel actually stops
+        # work instead of just flipping run status.
+        try:
+            from ..celery_app import app as celery_app
+
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: celery_app.control.revoke(
+                    in_flight_ids, terminate=True
+                ),
+            )
+            logger.info(
+                "[CeleryHub Engine] Revoked %d in-flight task(s) for "
+                "cancelled run %s",
+                len(in_flight_ids),
+                workflow_run_id,
+            )
+        except Exception:
+            logger.exception(
+                "[CeleryHub Engine] Revoke failed for run %s", workflow_run_id
+            )
     return True
 
 
@@ -246,6 +366,20 @@ async def _advance_workflow(workflow_run_id: str) -> None:
                 wf_run.status = "failed" if any_failed else "succeeded"
                 wf_run.finished_at = datetime.now(timezone.utc)
                 _run_terminal = True
+                if any_failed:
+                    failed_labels = [
+                        sr.step_label
+                        for sr in wf_run.step_runs
+                        if sr.status == "failed"
+                    ]
+                    from .alerts import RULE_WORKFLOW_FAILED, fire_and_forget
+
+                    fire_and_forget(
+                        RULE_WORKFLOW_FAILED,
+                        wf_run.workflow_id,
+                        f"Workflow run {wf_run.id} failed "
+                        f"(steps: {', '.join(failed_labels)}).",
+                    )
 
             await session.commit()
 
@@ -361,3 +495,46 @@ async def _expire_step(
 
     _timeout_tasks.pop(step_run_id, None)
     await _advance_workflow(workflow_run_id)
+
+
+async def retry_workflow_run(workflow_run_id: str) -> bool:
+    """Re-run the failed portion of a finished run.
+
+    Failed and skipped steps go back to pending (their old task rows are
+    superseded), succeeded steps keep their result, and the run resumes
+    through the normal advance path. Returns False when the run is not in a
+    retryable state.
+    """
+    async with get_session() as session:
+        result = await session.execute(
+            select(WorkflowRun)
+            .options(
+                selectinload(WorkflowRun.step_runs).selectinload(StepRun.task_runs)
+            )
+            .where(WorkflowRun.id == workflow_run_id)
+        )
+        wf_run = result.scalar_one_or_none()
+        if wf_run is None or wf_run.status not in ("failed", "cancelled"):
+            return False
+
+        to_reset = [
+            sr for sr in wf_run.step_runs if sr.status in ("failed", "skipped")
+        ]
+        if not to_reset:
+            return False
+
+        for sr in to_reset:
+            sr.status = "pending"
+            sr.started_at = None
+            sr.finished_at = None
+            sr.attempt = 1
+            for tr in sr.task_runs:
+                if tr.status != _RETRIED_STATUS:
+                    tr.status = _RETRIED_STATUS
+
+        wf_run.status = "running"
+        wf_run.finished_at = None
+        await session.commit()
+
+    await _advance_workflow(workflow_run_id)
+    return True

@@ -15,6 +15,7 @@ from . import VERSION
 from .celery_app import app as celery_app
 from .config import settings
 from .db import close_db, get_engine, get_session, init_db
+from .routers import alerts as alerts_router
 from .routers import control, event_log, events, queues, tasks, workflows, workers
 from .services.cache import CeleryCache
 from .services.event_collector import (
@@ -25,6 +26,11 @@ from .services.event_collector import (
 from .services.event_persister import start_event_persister, stop_event_persister
 from .services import leadership
 from .services.event_persister import EVENTS_GROUP
+from .services.alerts import start_alerts, stop_alerts
+from .services.exception_rollup import (
+    start_exception_rollup,
+    stop_exception_rollup,
+)
 from .services.retention import start_retention, stop_retention
 from .services.scheduler import start_scheduler, stop_scheduler
 from .services.inspect_cache import InspectCache
@@ -59,6 +65,10 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
         singleton_tasks["scheduler"] = start_scheduler()
         singleton_tasks["persister"] = start_event_persister()
         singleton_tasks["retention"] = start_retention()
+        singleton_tasks["rollup"] = start_exception_rollup()
+        alerts_task = start_alerts(application)
+        if alerts_task is not None:
+            singleton_tasks["alerts"] = alerts_task
 
     leadership_task = await leadership.run_when_leader(
         get_engine(), _start_singletons
@@ -78,6 +88,10 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
         await stop_event_collector(collector_task)
     if "retention" in singleton_tasks:
         await stop_retention(singleton_tasks["retention"])
+    if "rollup" in singleton_tasks:
+        await stop_exception_rollup(singleton_tasks["rollup"])
+    if "alerts" in singleton_tasks:
+        await stop_alerts(singleton_tasks["alerts"])
     if singleton_tasks.get("persister") is not None:
         await stop_event_persister(singleton_tasks["persister"])
     await leadership.release()
@@ -103,6 +117,7 @@ app.include_router(workflows.router, prefix="/api")
 app.include_router(queues.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
 app.include_router(event_log.router, prefix="/api")
+app.include_router(alerts_router.router, prefix="/api")
 
 
 @app.get("/health")

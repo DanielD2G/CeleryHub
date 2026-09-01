@@ -204,6 +204,7 @@ async def create_workflow(body: CreateWorkflowInput) -> JSONResponse:
             cron_expression=body.cron_expression,
             enabled=body.enabled,
             max_run_count=body.max_run_count,
+            expect_success_within_seconds=body.expect_success_within_seconds,
             total_run_count=0,
             next_run_at=next_run_at,
             created_at=now,
@@ -223,6 +224,8 @@ async def create_workflow(body: CreateWorkflowInput) -> JSONResponse:
                 depends_on=json.dumps(step.depends_on),
                 condition=step.condition,
                 timeout_seconds=step.timeout_seconds,
+                max_retries=step.max_retries,
+                retry_delay_seconds=step.retry_delay_seconds,
             )
             session.add(ws)
 
@@ -248,6 +251,116 @@ async def get_workflow_run_detail(run_id: str) -> Any:
         if not wf_run:
             raise HTTPException(status_code=404, detail="Workflow run not found")
         return wf_run
+
+
+@router.get("/runs/{run_id}/comparison")
+async def run_comparison(run_id: str) -> JSONResponse:
+    """This run vs the p50 of the workflow's last 20 finished runs, per step.
+
+    Answers "which step ate the difference" when a run comes in slow.
+    """
+    from sqlalchemy import text as _text
+
+    async with get_session() as session:
+        run = await session.get(WorkflowRun, run_id)
+        if run is None:
+            return JSONResponse({"error": "Run not found"}, status_code=404)
+
+        rows = (
+            await session.execute(
+                _text(
+                    """
+                    WITH recent AS (
+                        SELECT id FROM workflow_runs
+                        WHERE workflow_id = :wf
+                          AND finished_at IS NOT NULL
+                          AND id != :run
+                        ORDER BY started_at DESC
+                        LIMIT 20
+                    ),
+                    baseline AS (
+                        SELECT sr.step_label,
+                               percentile_cont(0.5) WITHIN GROUP (
+                                   ORDER BY EXTRACT(EPOCH FROM (sr.finished_at - sr.started_at))
+                               ) AS p50,
+                               count(*) AS n
+                        FROM step_runs sr
+                        JOIN recent r ON r.id = sr.workflow_run_id
+                        WHERE sr.started_at IS NOT NULL AND sr.finished_at IS NOT NULL
+                        GROUP BY sr.step_label
+                    )
+                    SELECT cur.step_label, cur.status,
+                           EXTRACT(EPOCH FROM (cur.finished_at - cur.started_at)) AS duration,
+                           b.p50, coalesce(b.n, 0) AS baseline_runs
+                    FROM step_runs cur
+                    LEFT JOIN baseline b ON b.step_label = cur.step_label
+                    WHERE cur.workflow_run_id = :run
+                    ORDER BY cur.started_at NULLS LAST
+                    """
+                ),
+                {"wf": run.workflow_id, "run": run_id},
+            )
+        ).all()
+
+    steps = []
+    for label, status, duration, p50, n in rows:
+        delta = (
+            float(duration) - float(p50)
+            if duration is not None and p50 is not None
+            else None
+        )
+        steps.append(
+            {
+                "stepLabel": label,
+                "status": status,
+                "durationSeconds": float(duration) if duration is not None else None,
+                "baselineP50Seconds": float(p50) if p50 is not None else None,
+                "baselineRuns": int(n),
+                "deltaSeconds": delta,
+            }
+        )
+    total = sum(s_["durationSeconds"] or 0 for s_ in steps)
+    baseline_total = sum(s_["baselineP50Seconds"] or 0 for s_ in steps)
+    return JSONResponse(
+        {
+            "runId": run_id,
+            "steps": steps,
+            "totalSeconds": total,
+            "baselineTotalSeconds": baseline_total,
+        }
+    )
+
+
+@router.post("/runs/{run_id}/retry", dependencies=[Depends(require_auth)])
+async def retry_run(run_id: str) -> JSONResponse:
+    """Re-run the failed portion of a failed/cancelled run."""
+    from ..services.workflow_engine import retry_workflow_run
+
+    retried: bool = await retry_workflow_run(run_id)
+    if not retried:
+        return JSONResponse(
+            {"error": "Run not found or not in a retryable state"},
+            status_code=409,
+        )
+    return JSONResponse({"runId": run_id, "status": "running"})
+
+
+@router.get("/using-task/{task_name}")
+async def workflows_using_task(task_name: str) -> list[dict[str, str]]:
+    """Workflows whose steps run the given task (for the task-detail page)."""
+    needle = f'"{task_name}"'
+    async with get_session() as session:
+        rows = (
+            await session.execute(
+                select(Workflow.id, Workflow.name, WorkflowStep.label)
+                .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
+                .where(WorkflowStep.task_names.contains(needle))
+            )
+        ).all()
+    return [
+        {"workflowId": wid, "workflowName": wname, "stepLabel": slabel}
+        for wid, wname, slabel in rows
+    ]
 
 
 @router.post(
@@ -347,6 +460,10 @@ async def update_workflow(
             "cron_expression": cron_expression,
             "enabled": enabled,
             "max_run_count": updates.get("max_run_count", existing.max_run_count),
+            "expect_success_within_seconds": updates.get(
+                "expect_success_within_seconds",
+                existing.expect_success_within_seconds,
+            ),
             "next_run_at": next_run_at,
             "updated_at": now,
         }
@@ -374,6 +491,8 @@ async def update_workflow(
                     depends_on=json.dumps(step.depends_on),
                     condition=step.condition,
                     timeout_seconds=step.timeout_seconds,
+                    max_retries=step.max_retries,
+                    retry_delay_seconds=step.retry_delay_seconds,
                 )
                 session.add(ws)
 
@@ -481,6 +600,7 @@ async def duplicate_workflow(
             cron_expression=existing.cron_expression,
             enabled=False,
             max_run_count=existing.max_run_count,
+            expect_success_within_seconds=existing.expect_success_within_seconds,
             total_run_count=0,
             next_run_at=None,
             created_at=now,
