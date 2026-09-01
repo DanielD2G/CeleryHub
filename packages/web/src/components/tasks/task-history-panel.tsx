@@ -122,7 +122,7 @@ export function TaskHistoryPanel({ taskName }: { taskName: string }) {
 
       {hasSeries && daily && (
         <div className="grid gap-4 md:grid-cols-2">
-          <Card>
+          <Card className="min-w-0">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Runtime p50 / p95 — 30 days</CardTitle>
             </CardHeader>
@@ -152,16 +152,16 @@ export function TaskHistoryPanel({ taskName }: { taskName: string }) {
                     type="monotone"
                     dataKey="runtimeP95"
                     name="p95"
-                    stroke="var(--color-amber-500, #f59e0b)"
-                    fill="var(--color-amber-500, #f59e0b)"
+                    stroke="var(--color-chart-4)"
+                    fill="var(--color-chart-4)"
                     fillOpacity={0.12}
                   />
                   <Area
                     type="monotone"
                     dataKey="runtimeP50"
                     name="p50"
-                    stroke="var(--color-sky-500, #0ea5e9)"
-                    fill="var(--color-sky-500, #0ea5e9)"
+                    stroke="var(--color-chart-1)"
+                    fill="var(--color-chart-1)"
                     fillOpacity={0.25}
                   />
                 </AreaChart>
@@ -169,7 +169,7 @@ export function TaskHistoryPanel({ taskName }: { taskName: string }) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="min-w-0">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Outcomes per day — 30 days</CardTitle>
             </CardHeader>
@@ -189,13 +189,13 @@ export function TaskHistoryPanel({ taskName }: { taskName: string }) {
                     dataKey="succeeded"
                     name="succeeded"
                     stackId="a"
-                    fill="var(--color-emerald-500, #10b981)"
+                    fill="var(--color-chart-2)"
                   />
                   <Bar
                     dataKey="failed"
                     name="failed"
                     stackId="a"
-                    fill="var(--color-red-500, #ef4444)"
+                    fill="var(--color-destructive)"
                     radius={[2, 2, 0, 0]}
                   />
                 </BarChart>

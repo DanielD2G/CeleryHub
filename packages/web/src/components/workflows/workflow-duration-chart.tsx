@@ -34,10 +34,10 @@ interface RunDurationsResponse {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  succeeded: "var(--color-emerald-500, #10b981)",
-  failed: "var(--color-red-500, #ef4444)",
-  cancelled: "var(--color-amber-500, #f59e0b)",
-  running: "var(--color-sky-500, #0ea5e9)",
+  succeeded: "var(--color-chart-2)",
+  failed: "var(--color-destructive)",
+  cancelled: "var(--color-chart-4)",
+  running: "var(--color-chart-1)",
 };
 
 export function WorkflowDurationChart({ workflowId }: { workflowId: string }) {
@@ -92,7 +92,7 @@ export function WorkflowDurationChart({ workflowId }: { workflowId: string }) {
             tickFormatter={(v: number) => formatDurationSeconds(v)}
           />
           <Tooltip
-            cursor={{ fill: "var(--color-muted, #f4f4f5)", opacity: 0.4 }}
+            cursor={{ fill: "var(--color-muted)", opacity: 0.4 }}
             content={({ active, payload }) => {
               if (!active || !payload?.length) return null;
               const run = payload[0].payload as RunDuration & { label: string };

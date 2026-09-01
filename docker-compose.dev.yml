@@ -1,0 +1,83 @@
+# Development stack: everything containerized WITH hot reload.
+#   docker compose -f docker-compose.dev.yml up
+# Frontend:  http://localhost:5173  (Vite dev server, HMR)
+# API:       http://localhost:3000  (uvicorn --reload; /api proxied from Vite)
+# Source is bind-mounted; editing files on the host reloads both sides.
+
+services:
+  redis:
+    image: redis:7-alpine
+    # Internal-only; uncomment to reach it with redis-cli from the host.
+    # ports:
+    #   - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: celeryhub
+    # Internal-only; uncomment to reach it with psql from the host
+    # (5432 often clashes with a local Postgres).
+    # ports:
+    #   - "5433:5432"
+    volumes:
+      - pgdata-dev:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  gateway:
+    image: python:3.12-alpine
+    working_dir: /app
+    volumes:
+      - ./services/celery-gateway:/app
+      - gateway-venv:/opt/venv
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/celeryhub
+      PATH: /opt/venv/bin:/usr/local/bin:/usr/bin:/bin
+    command: >
+      sh -c "
+        python -m venv /opt/venv 2>/dev/null || true &&
+        pip install -q -e . &&
+        alembic upgrade head &&
+        exec uvicorn celery_gateway.main:app --host 0.0.0.0 --port 3000 --reload --reload-dir src
+      "
+    ports:
+      - "3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: node:22-alpine
+    working_dir: /repo
+    volumes:
+      - .:/repo
+      - web-node-modules:/repo/node_modules
+    environment:
+      VITE_API_PROXY_TARGET: http://gateway:3000
+    command: >
+      sh -c "
+        npm install --no-audit --no-fund &&
+        exec npm run dev --workspace @celeryhub/web -- --host 0.0.0.0
+      "
+    ports:
+      - "5173:5173"
+    depends_on:
+      - gateway
+
+volumes:
+  pgdata-dev:
+  gateway-venv:
+  web-node-modules:

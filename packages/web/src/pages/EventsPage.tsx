@@ -73,32 +73,40 @@ export default function EventsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [taskName, setTaskName] = useState("");
+  const [debouncedTaskName, setDebouncedTaskName] = useState("");
   const [eventType, setEventType] = useState("all");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedTaskName(taskName), 300);
+    return () => clearTimeout(t);
+  }, [taskName]);
 
   const buildQuery = useCallback(
     (before?: string | null) => {
       const q = new URLSearchParams({ limit: "100" });
-      if (taskName.trim()) q.set("taskName", taskName.trim());
+      if (debouncedTaskName.trim()) q.set("taskName", debouncedTaskName.trim());
       if (eventType !== "all") q.set("eventType", eventType);
       if (before) q.set("before", before);
       return q.toString();
     },
-    [taskName, eventType]
+    [debouncedTaskName, eventType]
   );
 
-  const load = useCallback(() => {
-    apiGet<EventPage>(`/api/event-log?${buildQuery()}`)
+  useEffect(() => {
+    const controller = new AbortController();
+    apiGet<EventPage>(`/api/event-log?${buildQuery()}`, controller.signal)
       .then((page) => {
         setItems(page.items);
         setCursor(page.nextCursor);
         setLoadError(false);
       })
-      .catch(() => setLoadError(true));
+      .catch((e) => {
+        if (!(e instanceof DOMException && e.name === "AbortError")) {
+          setLoadError(true);
+        }
+      });
+    return () => controller.abort();
   }, [buildQuery]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   const loadMore = async () => {
     if (!cursor) return;
@@ -124,7 +132,7 @@ export default function EventsPage() {
       />
 
       <div className="flex flex-wrap items-end gap-3">
-        <div className="w-64">
+        <div className="w-full sm:w-64">
           <Input
             placeholder="Filter by task name…"
             value={taskName}
@@ -132,7 +140,7 @@ export default function EventsPage() {
           />
         </div>
         <Select value={eventType} onValueChange={setEventType}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger className="w-full sm:w-44">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

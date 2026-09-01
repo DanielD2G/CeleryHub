@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -115,6 +116,10 @@ export function SendTaskDialog({
         };
         pollTimeoutRef.current = setTimeout(poll, 1000);
       }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to send task";
+      setSendResult({ error: msg });
+      toast.error(msg);
     } finally {
       setSending(false);
     }

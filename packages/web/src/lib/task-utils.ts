@@ -42,3 +42,22 @@ export function timeAgo(timestamp: number): string {
   if (seconds < 2592000) return `${Math.floor(seconds / 86400)}d ago`;
   return `${Math.floor(seconds / 2592000)} months ago`;
 }
+
+
+/**
+ * Time-bucket helpers for sparklines. Keys are epoch seconds floored to the
+ * bucket, NOT "HH:MM" strings — string keys merge today's 14:03 with
+ * yesterday's 14:03 and sort in clock order, plotting windows that cross
+ * midnight backwards.
+ */
+export function bucketEpoch(epochSeconds: number, bucketSeconds: number): number {
+  return Math.floor(epochSeconds / bucketSeconds) * bucketSeconds;
+}
+
+export function bucketLabel(epochSeconds: number): string {
+  const d = new Date(epochSeconds * 1000);
+  return `${d.getHours().toString().padStart(2, "0")}:${d
+    .getMinutes()
+    .toString()
+    .padStart(2, "0")}`;
+}

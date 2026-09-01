@@ -1,3 +1,4 @@
+import { bucketEpoch, bucketLabel } from "@/lib/task-utils";
 import { useMemo, useEffect, useState } from "react";
 import { useCelery } from "@/hooks/use-celery";
 import { apiGet } from "@/lib/api";
@@ -128,16 +129,15 @@ export function StatsCards() {
     const tasks = Array.from(completedTasks.values());
     if (tasks.length === 0) return [];
 
-    const buckets = new Map<string, number>();
+    const buckets = new Map<number, number>();
     for (const task of tasks) {
-      const date = new Date(task.completedAt * 1000);
-      const key = `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
+      const key = bucketEpoch(task.completedAt, 60);
       buckets.set(key, (buckets.get(key) || 0) + 1);
     }
 
     return Array.from(buckets.entries())
-      .map(([time, value]) => ({ time, value }))
-      .sort((a, b) => a.time.localeCompare(b.time));
+      .sort(([a], [b]) => a - b)
+      .map(([epoch, value]) => ({ time: bucketLabel(epoch), value }));
   }, [completedTasks]);
 
   const successRateData = useMemo(() => {
@@ -145,12 +145,10 @@ export function StatsCards() {
     if (tasks.length === 0) return [];
 
     const sorted = [...tasks].sort((a, b) => a.completedAt - b.completedAt);
-    const buckets = new Map<string, { success: number; total: number }>();
+    const buckets = new Map<number, { success: number; total: number }>();
 
     for (const task of sorted) {
-      const date = new Date(task.completedAt * 1000);
-      const mins = Math.floor(date.getMinutes() / 5) * 5;
-      const key = `${date.getHours().toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}`;
+      const key = bucketEpoch(task.completedAt, 300);
       if (!buckets.has(key)) buckets.set(key, { success: 0, total: 0 });
       const b = buckets.get(key)!;
       b.total++;
@@ -158,11 +156,11 @@ export function StatsCards() {
     }
 
     return Array.from(buckets.entries())
-      .map(([time, { success, total }]) => ({
-        time,
+      .sort(([a], [b]) => a - b)
+      .map(([epoch, { success, total }]) => ({
+        time: bucketLabel(epoch),
         value: total > 0 ? Math.round((success / total) * 100) : 0,
-      }))
-      .sort((a, b) => a.time.localeCompare(b.time));
+      }));
   }, [completedTasks]);
 
   const computed = useMemo(() => {

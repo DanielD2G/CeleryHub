@@ -103,7 +103,9 @@ export function TaskCards() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <ListTodo className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm">{group.name}</CardTitle>
+                <CardTitle className="min-w-0 truncate text-sm" title={group.name}>
+                {group.name}
+              </CardTitle>
                 {group.activeCount > 0 && (
                   <Badge
                     variant="outline"
