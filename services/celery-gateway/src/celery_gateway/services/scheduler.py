@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 _ticking: bool = False
 
+# A due workflow firing later than this is logged as a missed/late run
+# (typically the app was down when the schedule came due).
+LATE_FIRE_GRACE_SECONDS = 300
+
 
 def compute_next_run_at(
     schedule_type: str,
@@ -105,6 +109,16 @@ async def _tick() -> None:
                 )
 
             for workflow in due_workflows:
+                if workflow.next_run_at is not None:
+                    delay = (now - workflow.next_run_at).total_seconds()
+                    if delay > LATE_FIRE_GRACE_SECONDS:
+                        logger.warning(
+                            "[CeleryHub Scheduler] Workflow '%s' firing %.0fs "
+                            "late (was due at %s) — likely downtime",
+                            workflow.name,
+                            delay,
+                            workflow.next_run_at.isoformat(),
+                        )
                 new_total: int = workflow.total_run_count + 1
                 should_disable: bool = (
                     workflow.max_run_count is not None
