@@ -225,6 +225,21 @@ class CeleryCache:
                 if registered:
                     for worker_name, task_list in registered.items():
                         by_worker[worker_name] = sorted(task_list)
+                    # Seed the known-tasks set with what workers actually
+                    # register, so newly deployed tasks appear everywhere
+                    # without waiting for their first event.
+                    fresh = {
+                        t for tasks in registered.values() for t in tasks
+                        if t and not t.startswith("celery.")
+                    }
+                    new_names = fresh - set(known_names)
+                    if new_names:
+                        from .redis_client import get_redis
+
+                        await get_redis().sadd(
+                            "celeryhub:known-tasks", *new_names
+                        )
+                        known_names = sorted(set(known_names) | new_names)
             except Exception:
                 pass
 
