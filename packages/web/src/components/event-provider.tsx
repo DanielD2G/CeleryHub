@@ -474,16 +474,25 @@ export function EventProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {});
 
-    apiGet<{ tasks: string[] }>("/api/tasks/registered")
-      .then((data) => {
-        if (!cancelled && data?.tasks?.length) {
-          dispatch({ type: "load-registered", payload: data.tasks });
-        }
-      })
-      .catch(() => {});
+    // Registered tasks: fetch now and re-poll periodically so tasks added
+    // to a worker (e.g. after a worker redeploy) show up without reloading
+    // the app.
+    const pollRegistered = () => {
+      if (document.hidden) return;
+      apiGet<{ tasks: string[] }>("/api/tasks/registered")
+        .then((data) => {
+          if (!cancelled && data?.tasks?.length) {
+            dispatch({ type: "load-registered", payload: data.tasks });
+          }
+        })
+        .catch(() => {});
+    };
+    pollRegistered();
+    const registeredInterval = setInterval(pollRegistered, 60_000);
 
     return () => {
       cancelled = true;
+      clearInterval(registeredInterval);
     };
   }, []);
 

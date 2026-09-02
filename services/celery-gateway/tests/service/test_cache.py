@@ -121,3 +121,38 @@ class TestCeleryCache:
         }
         assert set(cache._entries.keys()) >= expected_keys
         cache.stop()
+
+
+@pytest.mark.asyncio
+async def test_registered_refresh_seeds_known_tasks(fake_redis):
+    """Tasks a worker registers appear in the known-tasks set without
+    waiting for their first event — this is what makes newly deployed
+    tasks show up in the UI within one refresh cycle."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from celery_gateway.services.cache import CeleryCache
+
+    inspect_cache = MagicMock()
+    inspect_cache.get = AsyncMock(
+        return_value={"celery@w1": ["scrape_new_store", "celery.chord_unlock"]}
+    )
+    cache = CeleryCache(inspect_cache)
+
+    with (
+        patch(
+            "celery_gateway.services.celery_redis.get_known_task_names",
+            new=AsyncMock(return_value=["scrape_old"]),
+        ),
+        patch(
+            "celery_gateway.services.redis_client.get_redis",
+            return_value=fake_redis,
+        ),
+    ):
+        data = await cache._refresh_registered_tasks()
+
+    # celery.* internals are excluded; the new task is seeded
+    members = await fake_redis.smembers("celeryhub:known-tasks")
+    decoded = {m.decode() if isinstance(m, bytes) else m for m in members}
+    assert decoded == {"scrape_new_store"}
+    assert "scrape_new_store" in data["tasks"]
+    cache.stop()
