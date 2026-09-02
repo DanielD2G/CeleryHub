@@ -59,6 +59,35 @@ def _pipe_index_completed(
     pipe.zremrangebyrank(_COMPLETED_ZSET_KEY, 0, -(_COMPLETED_MAX_SIZE + 1))
 
 
+async def _resolve_task_name(redis: Any, uuid: str) -> str | None:
+    """Best-effort task name for a terminal event with no prior received.
+
+    A NotRegistered task emits only task-failed, which carries no name — but
+    if the workflow engine dispatched it, task_runs has it. Without this, the
+    UI shows the failure as "unknown".
+    """
+    try:
+        existing = await redis.hget(f"{_TASK_META_KEY}:{uuid}", "name")
+        if existing:
+            return existing.decode() if isinstance(existing, bytes) else existing
+    except Exception:
+        pass
+    try:
+        from sqlalchemy import select
+
+        from ..db.models import TaskRun
+
+        async with get_session() as session:
+            name = await session.scalar(
+                select(TaskRun.task_name)
+                .where(TaskRun.task_id == uuid)
+                .limit(1)
+            )
+            return name
+    except Exception:
+        return None
+
+
 async def _persist_event(event: dict[str, Any]) -> None:
     redis = get_redis()
     uuid: str | None = event.get("uuid")
@@ -145,6 +174,12 @@ async def _persist_event(event: dict[str, Any]) -> None:
             fields["traceback"] = event["traceback"]
         if hostname:
             fields["worker"] = hostname
+        resolved = event.get("name") or await _resolve_task_name(redis, uuid)
+        if resolved:
+            fields["name"] = resolved
+            pipe0 = redis.pipeline()
+            pipe0.sadd(_KNOWN_TASKS_KEY, resolved)
+            await pipe0.execute()
         pipe = redis.pipeline()
         pipe.hset(meta_key, mapping=fields)
         _pipe_expire(pipe, meta_key)

@@ -108,12 +108,45 @@ async def _backfill_task_names(redis: Any, rows: list[dict[str, Any]]) -> None:
             len(still_missing),
         )
         return
+    unresolved: list[dict[str, Any]] = []
     for row, name in zip(still_missing, results):
         if isinstance(name, bytes):
             name = name.decode("utf-8", errors="replace")
         if name:
             row["task_name"] = name
             _remember_task_name(row["task_id"], name)
+        else:
+            unresolved.append(row)
+
+    if not unresolved:
+        return
+    # Last resort: the workflow engine's task_runs table. Covers tasks that
+    # never produced a task-received (e.g. NotRegistered failures).
+    try:
+        from sqlalchemy import select
+
+        from ..db.models import TaskRun
+
+        ids = [r["task_id"] for r in unresolved]
+        async with get_session() as session:
+            rows_db = (
+                await session.execute(
+                    select(TaskRun.task_id, TaskRun.task_name).where(
+                        TaskRun.task_id.in_(ids)
+                    )
+                )
+            ).all()
+        by_id = {tid: name for tid, name in rows_db if name}
+        for row in unresolved:
+            name = by_id.get(row["task_id"])
+            if name:
+                row["task_name"] = name
+                _remember_task_name(row["task_id"], name)
+    except Exception:
+        logger.warning(
+            "[CeleryHub EventPersister] task_runs backfill lookup failed",
+            exc_info=True,
+        )
 
 
 async def _flush_batch(
