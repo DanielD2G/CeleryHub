@@ -190,3 +190,53 @@ async def test_claim_stale_noop_when_nothing_pending(fake_redis, db_session):
 
     await _ensure_group(fake_redis)
     assert await ep._claim_stale(fake_redis) == 0
+
+
+@pytest.mark.asyncio
+async def test_backfill_from_task_runs_table(fake_redis, db_session):
+    """A NotRegistered task emits only task-failed with no name anywhere in
+    Redis — but the engine's task_runs row has it."""
+    import uuid as _uuid
+    from datetime import datetime, timezone
+
+    from celery_gateway.db.models import (
+        StepRun,
+        TaskRun,
+        Workflow,
+        WorkflowRun,
+    )
+    from celery_gateway.services import event_persister as ep_mod
+
+    ep_mod._task_names.clear()
+    now = datetime.now(timezone.utc)
+    wf_id = str(_uuid.uuid4())
+    db_session.add(Workflow(
+        id=wf_id, name="bf-wf", schedule_type="none", enabled=True,
+        total_run_count=0, created_at=now, updated_at=now,
+    ))
+    db_session.add(WorkflowRun(
+        id="bf-run", workflow_id=wf_id, status="running",
+        trigger="manual", started_at=now,
+    ))
+    db_session.add(StepRun(
+        id="bf-sr", workflow_run_id="bf-run", step_id="s",
+        step_label="S", status="running", started_at=now,
+    ))
+    db_session.add(TaskRun(
+        id="bf-tr", step_run_id="bf-sr", task_id="notreg-1",
+        task_name="scrape_slot_one", status="SENT",
+    ))
+    await db_session.commit()
+
+    await _ensure_group(fake_redis)
+    await _seed(fake_redis, {
+        "uuid": "notreg-1", "type": "task-failed",
+        "timestamp": 1700000060.0,
+        "exception": "NotRegistered('scrape_slot_one')",
+    })
+    await _consume_once(fake_redis)
+
+    name = await db_session.scalar(
+        select(CeleryEvent.task_name).where(CeleryEvent.task_id == "notreg-1")
+    )
+    assert name == "scrape_slot_one"

@@ -346,9 +346,18 @@ function celeryReducer(state: CeleryState, action: Action): CeleryState {
       let changed = false;
 
       for (const task of action.payload) {
-        // Don't overwrite real-time data
-        if (!completedTasks.has(task.taskId)) {
+        const existing = completedTasks.get(task.taskId);
+        if (!existing) {
           completedTasks.set(task.taskId, task);
+          changed = true;
+        } else if (
+          (existing.name === "unknown" && task.name && task.name !== "unknown") ||
+          (!existing.exception && task.exception)
+        ) {
+          // The SSE event arrived without a name (e.g. a NotRegistered
+          // failure emits only task-failed); the REST history has the
+          // backfilled one — upgrade the entry instead of keeping "unknown".
+          completedTasks.set(task.taskId, { ...existing, ...task });
           changed = true;
         }
         if (task.name && task.name !== "unknown") {

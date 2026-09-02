@@ -271,9 +271,18 @@ export default function HistoryPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="truncate font-mono text-xs">
-                    {task.runtime != null
-                      ? formatDurationSeconds(task.runtime)
-                      : "—"}
+                    {task.runtime != null ? (
+                      formatDurationSeconds(task.runtime)
+                    ) : task.status === "FAILURE" && task.exception ? (
+                      <span
+                        className="text-destructive"
+                        title={task.exception}
+                      >
+                        {task.exception}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </TableCell>
                   <TableCell className="truncate text-xs text-muted-foreground">
                     {new Date(task.completedAt * 1000).toLocaleString()}

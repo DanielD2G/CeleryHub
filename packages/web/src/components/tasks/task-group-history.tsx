@@ -86,9 +86,15 @@ export function TaskGroupHistory({
                     </Badge>
                   </TableCell>
                   <TableCell className="font-mono text-xs">
-                    {task.runtime != null
-                      ? formatDurationSeconds(task.runtime)
-                      : "—"}
+                    {task.runtime != null ? (
+                      formatDurationSeconds(task.runtime)
+                    ) : task.status === "FAILURE" && task.exception ? (
+                      <span className="text-destructive" title={task.exception}>
+                        {task.exception}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {new Date(task.completedAt * 1000).toLocaleString()}
